@@ -3,6 +3,1337 @@ using System;
 
 namespace ChessChallenge.Example
 {
+public class MyTTV1 : IChessBot
+{
+    struct TTEntry {
+        public ulong key;
+        public Move move;
+        public int depth, bound;
+        public double score;
+        public TTEntry(ulong _key, Move _move, int _depth, double _score, int _bound) {
+            key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
+        }
+    }
+
+    const int entries = (1 << 25);
+    TTEntry[] tt = new TTEntry[entries];
+
+    public int positionsEvaluated = 0;
+    public int TIME_PER_MOVE = 1000;
+    public Move Think(Board board, Timer timer)
+    {
+        // Move[] legalMoves = getMovesSorted(board);
+        int numPieces = getNumPieces(board);
+        int depthLeft = 2;
+        Move bestMoveFinal = Move.NullMove;
+        double bestEvalFinal = double.NegativeInfinity;
+        Move bestMoveCurrent = Move.NullMove;
+        double bestEvalCurrent = double.NegativeInfinity;
+        // TIME_PER_MOVE = timer.MillisecondsRemaining / numPieces;
+        // if (timer.MillisecondsRemaining < 6000) {
+        TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
+        // }
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
+            //iterative deepening
+            double alpha = double.NegativeInfinity;
+            double beta = double.PositiveInfinity;
+            (bestMoveCurrent, bestEvalCurrent) = NegaMax(board: board, depthLeft: depthLeft, 
+                                                depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
+                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMoveCurrent, timer: timer);
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+                break;
+            }
+            bestMoveFinal = bestMoveCurrent;
+            bestEvalFinal = bestEvalCurrent;
+            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
+                            bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
+            depthLeft += 1;
+            
+        }
+    positionsEvaluated = 0;
+    return bestMoveFinal;
+    }
+    public int getNumPieces(Board board) {
+        int numPieces = 0;
+        PieceList[] pieces = board.GetAllPieceLists();
+        foreach (PieceList pieceList in pieces) {
+            numPieces += pieceList.Count;
+        }
+        return numPieces;
+    }
+
+
+public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
+                                bool rootIsWhite, Move prevBestMove, Timer timer)
+{
+    bool root = depthSoFar == 0;
+    if(!root && board.IsRepeatedPosition()) {
+            return (Move.NullMove, 0);
+    }
+
+    ulong key = board.ZobristKey;
+    TTEntry entry = tt[key % entries];
+
+    if(!root && entry.key == key && entry.depth >= depthLeft && (
+            entry.bound == 3 // exact score
+                || entry.bound == 2 && entry.score >= beta // lower bound, fail high
+                || entry.bound == 1 && entry.score <= alpha // upper bound, fail low
+        )) {
+        return (Move.NullMove, entry.score);
+    }
+
+    if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || 
+                board.FiftyMoveCounter >= 100 || timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE)
+    {
+        return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+    }
+    System.Span<Move> captures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref captures, true);
+    System.Span<Move> notCaptures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref notCaptures, false);
+    //remove any elements from notCaptures that are in captures
+    for (int i = 0; i < captures.Length; i++) {
+        for (int j = 0; j < notCaptures.Length; j++) {
+            if (captures[i] == notCaptures[j]) {
+                notCaptures[j] = notCaptures[notCaptures.Length - 1];
+                notCaptures = notCaptures.Slice(0, notCaptures.Length - 1);
+                break;
+            }
+        }
+    }
+
+    System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
+    captures.CopyTo(legalMoves);
+    notCaptures.CopyTo(legalMoves.Slice(captures.Length));
+    if (legalMoves.Length  == 0) { //stalemate detected
+        return (Move.NullMove, 0);
+    }
+    //put the best move from the previous iteration first in the list
+    if (prevBestMove != Move.NullMove) {
+        for (int i = 0; i < legalMoves.Length; i++) {
+            if (legalMoves[i] == prevBestMove) {
+                Move temp = legalMoves[0];
+                legalMoves[0] = legalMoves[i];
+                legalMoves[i] = temp;
+                break;
+            }
+        }
+    }
+    double maxEval = double.NegativeInfinity;
+    Move bestMove = Move.NullMove;
+    double origAlpha = alpha;
+    foreach (Move move in legalMoves)
+    {
+        board.MakeMove(move);
+        double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
+                            color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
+        board.UndoMove(move);
+        if (eval > maxEval)
+        {
+            maxEval = eval;
+            bestMove = move;
+        }
+        alpha = Math.Max(alpha, maxEval);
+        if (alpha >= beta) {
+            break;
+        }
+    }   int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1;
+
+        // Push to TT
+        tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
+    
+    return (bestMove, maxEval);
+}
+
+        public delegate int CalculateScoreDelegate(ulong pieceBitboard, bool isWhite);
+    public double EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
+        PieceType[] pieceTypes = {PieceType.Pawn, PieceType.Bishop, PieceType.Knight, PieceType.Rook, PieceType.Queen};
+        positionsEvaluated++;
+        double whiteScore = 0;
+        double blackScore = 0;
+        if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
+                    return -1;
+                }
+        if (board.IsInCheckmate()) {
+            if (board.IsWhiteToMove) {
+                whiteScore -= 9999999999 - depthSoFar;
+                }
+            else {
+                blackScore -= 9999999999 - depthSoFar;
+                }
+            if (rootIsWhite) {
+                return whiteScore - blackScore;
+                }   
+            else {
+                return blackScore - whiteScore;
+            }
+                }
+        ulong[] whitePieceBitBoards = new ulong[5];
+        ulong[] blackPieceBitBoards = new ulong[5];
+                CalculateScoreDelegate[] calculationFunctions = 
+        {
+            CalculatePawnScore,
+            CalculateBishopScore,
+            CalculateKnightScore,
+            CalculateRookScore,
+            CalculateQueenScore
+        };
+        for (int i = 0; i < 5; i++) {
+            whitePieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: true);
+            blackPieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: false);
+            whiteScore += calculationFunctions[i](whitePieceBitBoards[i], isWhite: true);
+            blackScore += calculationFunctions[i](blackPieceBitBoards[i], isWhite: false);
+        }
+        
+        int numPieces = getNumPieces(board);
+        bool isEndGame = numPieces <= 12;
+        whiteScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: true), isWhite: true, isEndGame: isEndGame);
+        blackScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: false), isWhite: false, isEndGame: isEndGame);
+
+
+        //give the color whos turn it is a slight advantage
+        whiteScore += board.IsWhiteToMove ? 100 : -100;
+        // //check castling
+        // if (board.HasKingsideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasKingsideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        if (rootIsWhite) {
+            return whiteScore - blackScore;
+        }
+        else {
+            return blackScore - whiteScore;
+        }
+}
+public int CalculatePawnScore(ulong pawnBitboard, bool isWhite) 
+{
+    int score = 0;
+
+    int[] pawnStructure = 
+    {
+        0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+        5,  5, 10, 25, 25, 10,  5,  5,
+        0,  0,  0, 20, 20,  0,  0,  0,
+        5, -5,-10,  0,  0,-10, -5,  5,
+        5, 10, 10,-20,-20, 10, 10,  5,
+        0,  0,  0,  0,  0,  0,  0,  0
+    };
+    if (isWhite) 
+    {
+        Array.Reverse(pawnStructure);
+    }
+
+    while (pawnBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(pawnBitboard);
+        score += 100 + pawnStructure[i];
+        pawnBitboard &= pawnBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateKnightScore(ulong knightBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic knight structure value.
+    int[] knightStructure = 
+    {
+            -50,-40,-30,-30,-30,-30,-40,-50,
+            -40,-20,  0,  0,  0,  0,-20,-40,
+            -30,  0, 10, 15, 15, 10,  0,-30,
+            -30,  5, 15, 20, 20, 15,  5,-30,
+            -30,  0, 15, 20, 20, 15,  0,-30,
+            -30,  5, 10, 15, 15, 10,  5,-30,
+            -40,-20,  0,  5,  5,  0,-20,-40,
+            -50,-40,-30,-30,-30,-30,-40,-50,
+    };
+
+    while (knightBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(knightBitboard);
+        score += 320 + knightStructure[i];
+        knightBitboard &= knightBitboard - 1; // clears least significant bit
+    }
+
+    return  score;
+}
+
+public int CalculateBishopScore(ulong bishopBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic bishop structure value.
+    int[] bishopStructure = 
+    {
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20,
+    };
+
+    while (bishopBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(bishopBitboard);
+        score += 330 + bishopStructure[i];
+        bishopBitboard &= bishopBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateRookScore(ulong rookBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic rook structure value.
+    int[] rookStructure = 
+    {
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0
+    };
+    if (isWhite){ 
+        Array.Reverse(rookStructure);
+    }
+    while (rookBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(rookBitboard);
+        score += 500 + rookStructure[i];
+        rookBitboard &= rookBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateQueenScore(ulong queenBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic queen structure value.
+    int[] queenStructure = 
+    {
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20
+    };
+
+    while (queenBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(queenBitboard);
+        score += 900 + queenStructure[i];
+        queenBitboard &= queenBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateKingScore(ulong kingBitboard, bool isWhite, bool isEndGame) 
+{
+    int score = 0;
+    //we define a beginning/middle game king structure value
+        int[] midKingStructure = 
+    {
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -20,-30,-30,-40,-40,-30,-30,-20,
+            -10,-20,-20,-20,-20,-20,-20,-10,
+            20, 20,  0,  0,  0,  0, 20, 20,
+            20, 30, 10,  0,  0, 10, 30, 20
+    };
+            int[] endKingStructure = 
+    {
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50
+    };
+    if (isWhite) {
+        Array.Reverse(midKingStructure);
+        Array.Reverse(endKingStructure);
+    }
+    int[] kingStructure = isEndGame ? endKingStructure : midKingStructure;
+    while (kingBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(kingBitboard);
+        score += kingStructure[i];
+        kingBitboard &= kingBitboard - 1; // clears least significant bit
+    }
+    return score;
+}
+
+
+}
+public class MyIterDeepPSEV2 : IChessBot
+{
+    public int positionsEvaluated = 0;
+    public int TIME_PER_MOVE =  1000;
+    public Move Think(Board board, Timer timer)
+    {
+        // Move[] legalMoves = getMovesSorted(board);
+        int numPieces = getNumPieces(board);
+        int maxDepth = 10;
+        int depthLeft = 1;
+        Move bestMoveFinal = Move.NullMove;
+        double bestEvalFinal = double.NegativeInfinity;
+        Move bestMoveCurrent = Move.NullMove;
+        double bestEvalCurrent = double.NegativeInfinity;
+        if (timer.MillisecondsRemaining < 10000) {
+            maxDepth = 7;
+        }
+        if (timer.MillisecondsRemaining < 6000) {
+            maxDepth = 5;
+        }
+        if (timer.MillisecondsRemaining < 3000) {
+            maxDepth = 4;
+        }
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && depthLeft < maxDepth) {
+            //iterative deepening
+            double alpha = double.NegativeInfinity;
+            double beta = double.PositiveInfinity;
+            (bestMoveCurrent, bestEvalCurrent) = NegaMax(board: board, depthLeft: depthLeft, 
+                                                depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
+                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMoveCurrent, timer: timer);
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+                break;
+            }
+            bestMoveFinal = bestMoveCurrent;
+            bestEvalFinal = bestEvalCurrent;
+            //Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}\n", bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated);
+            depthLeft++;
+            
+        }
+    positionsEvaluated = 0;
+    return bestMoveFinal;
+    }
+    public int getNumPieces(Board board) {
+        int numPieces = 0;
+        PieceList[] pieces = board.GetAllPieceLists();
+        foreach (PieceList pieceList in pieces) {
+            numPieces += pieceList.Count;
+        }
+        return numPieces;
+    }
+
+
+public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
+                                bool rootIsWhite, Move prevBestMove, Timer timer)
+{
+    if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || board.IsRepeatedPosition() || 
+                board.FiftyMoveCounter >= 100 || timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE)
+    {
+        return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+    }
+    //put the best move from the previous iteration first in the list
+    System.Span<Move> captures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref captures, true);
+    System.Span<Move> notCaptures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref notCaptures, false);
+    //remove any elements from notCaptures that are in captures
+    for (int i = 0; i < captures.Length; i++) {
+        for (int j = 0; j < notCaptures.Length; j++) {
+            if (captures[i] == notCaptures[j]) {
+                notCaptures[j] = notCaptures[notCaptures.Length - 1];
+                notCaptures = notCaptures.Slice(0, notCaptures.Length - 1);
+                break;
+            }
+        }
+    }
+    System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
+    captures.CopyTo(legalMoves);
+    notCaptures.CopyTo(legalMoves.Slice(captures.Length));
+    if (legalMoves.Length  == 0) { //stalemate detected
+        return (Move.NullMove, 0);
+    }
+    if (prevBestMove != Move.NullMove) {
+        for (int i = 0; i < legalMoves.Length; i++) {
+            if (legalMoves[i] == prevBestMove) {
+                Move temp = legalMoves[0];
+                legalMoves[0] = legalMoves[i];
+                legalMoves[i] = temp;
+                break;
+            }
+        }
+    }
+    double maxEval = double.NegativeInfinity;
+    Move bestMove = Move.NullMove;
+
+    foreach (Move move in legalMoves)
+    {
+        board.MakeMove(move);
+        double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
+                            color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
+        board.UndoMove(move);
+        if (eval > maxEval)
+        {
+            maxEval = eval;
+            bestMove = move;
+        }
+        alpha = Math.Max(alpha, maxEval);
+        if (alpha >= beta) {
+            break;
+        }
+    }
+    
+    return (bestMove, maxEval);
+}
+
+        public delegate int CalculateScoreDelegate(ulong pieceBitboard, bool isWhite);
+    public double EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
+        PieceType[] pieceTypes = {PieceType.Pawn, PieceType.Bishop, PieceType.Knight, PieceType.Rook, PieceType.Queen};
+        positionsEvaluated++;
+        double whiteScore = 0;
+        double blackScore = 0;
+        if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
+                    return -1;
+                }
+        if (board.IsInCheckmate()) {
+            if (board.IsWhiteToMove) {
+                whiteScore -= 9999999999 - depthSoFar;
+                }
+            else {
+                blackScore -= 9999999999 - depthSoFar;
+                }
+            if (rootIsWhite) {
+                return whiteScore - blackScore;
+                }   
+            else {
+                return blackScore - whiteScore;
+            }
+                }
+        ulong[] whitePieceBitBoards = new ulong[5];
+        ulong[] blackPieceBitBoards = new ulong[5];
+                CalculateScoreDelegate[] calculationFunctions = 
+        {
+            CalculatePawnScore,
+            CalculateBishopScore,
+            CalculateKnightScore,
+            CalculateRookScore,
+            CalculateQueenScore
+        };
+        for (int i = 0; i < 5; i++) {
+            whitePieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: true);
+            blackPieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: false);
+            whiteScore += calculationFunctions[i](whitePieceBitBoards[i], isWhite: true);
+            blackScore += calculationFunctions[i](blackPieceBitBoards[i], isWhite: false);
+        }
+        
+        int numPieces = getNumPieces(board);
+        bool isEndGame = numPieces <= 12;
+        whiteScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: true), isWhite: true, isEndGame: isEndGame);
+        blackScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: false), isWhite: false, isEndGame: isEndGame);
+
+        // //check castling
+        // if (board.HasKingsideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasKingsideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        if (rootIsWhite) {
+            return whiteScore - blackScore;
+        }
+        else {
+            return blackScore - whiteScore;
+        }
+}
+public int CalculatePawnScore(ulong pawnBitboard, bool isWhite) 
+{
+    int score = 0;
+
+    int[] pawnStructure = 
+    {
+        0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+        5,  5, 10, 25, 25, 10,  5,  5,
+        0,  0,  0, 20, 20,  0,  0,  0,
+        5, -5,-10,  0,  0,-10, -5,  5,
+        5, 10, 10,-20,-20, 10, 10,  5,
+        0,  0,  0,  0,  0,  0,  0,  0
+    };
+    if (isWhite) 
+    {
+        Array.Reverse(pawnStructure);
+    }
+
+    while (pawnBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(pawnBitboard);
+        score += 100 + pawnStructure[i];
+        pawnBitboard &= pawnBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateKnightScore(ulong knightBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic knight structure value.
+    int[] knightStructure = 
+    {
+            -50,-40,-30,-30,-30,-30,-40,-50,
+            -40,-20,  0,  0,  0,  0,-20,-40,
+            -30,  0, 10, 15, 15, 10,  0,-30,
+            -30,  5, 15, 20, 20, 15,  5,-30,
+            -30,  0, 15, 20, 20, 15,  0,-30,
+            -30,  5, 10, 15, 15, 10,  5,-30,
+            -40,-20,  0,  5,  5,  0,-20,-40,
+            -50,-40,-30,-30,-30,-30,-40,-50,
+    };
+
+    while (knightBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(knightBitboard);
+        score += 320 + knightStructure[i];
+        knightBitboard &= knightBitboard - 1; // clears least significant bit
+    }
+
+    return  score;
+}
+
+public int CalculateBishopScore(ulong bishopBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic bishop structure value.
+    int[] bishopStructure = 
+    {
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20,
+    };
+
+    while (bishopBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(bishopBitboard);
+        score += 330 + bishopStructure[i];
+        bishopBitboard &= bishopBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateRookScore(ulong rookBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic rook structure value.
+    int[] rookStructure = 
+    {
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0
+    };
+    if (isWhite){ 
+        Array.Reverse(rookStructure);
+    }
+    while (rookBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(rookBitboard);
+        score += 500 + rookStructure[i];
+        rookBitboard &= rookBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateQueenScore(ulong queenBitboard, bool isWhite) 
+{
+    int score = 0;
+    // We define a basic queen structure value.
+    int[] queenStructure = 
+    {
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20
+    };
+
+    while (queenBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(queenBitboard);
+        score += 900 + queenStructure[i];
+        queenBitboard &= queenBitboard - 1; // clears least significant bit
+    }
+
+    return score;
+}
+
+public int CalculateKingScore(ulong kingBitboard, bool isWhite, bool isEndGame) 
+{
+    int score = 0;
+    //we define a beginning/middle game king structure value
+        int[] midKingStructure = 
+    {
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -20,-30,-30,-40,-40,-30,-30,-20,
+            -10,-20,-20,-20,-20,-20,-20,-10,
+            20, 20,  0,  0,  0,  0, 20, 20,
+            20, 30, 10,  0,  0, 10, 30, 20
+    };
+            int[] endKingStructure = 
+    {
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50
+    };
+    if (isWhite) {
+        Array.Reverse(midKingStructure);
+        Array.Reverse(endKingStructure);
+    }
+    int[] kingStructure = isEndGame ? endKingStructure : midKingStructure;
+    while (kingBitboard != 0)
+    {
+        int i = BitOperations.TrailingZeroCount(kingBitboard);
+        score += kingStructure[i];
+        kingBitboard &= kingBitboard - 1; // clears least significant bit
+    }
+    return score;
+}
+
+
+}
+
+public class MyIterDeepPSEV1 : IChessBot
+{
+    public int positionsEvaluated = 0;
+    public int TIME_PER_MOVE =  1000;
+    public Move Think(Board board, Timer timer)
+    {
+        // Move[] legalMoves = getMovesSorted(board);
+        int numPieces = getNumPieces(board);
+        int maxDepth = 10;
+        int depthLeft = 1;
+        Move bestMoveFinal = Move.NullMove;
+        double bestEvalFinal = double.NegativeInfinity;
+        Move bestMoveCurrent = Move.NullMove;
+        double bestEvalCurrent = double.NegativeInfinity;
+        if (timer.MillisecondsRemaining < 10000) {
+            maxDepth = 7;
+        }
+        if (timer.MillisecondsRemaining < 6000) {
+            maxDepth = 5;
+        }
+        if (timer.MillisecondsRemaining < 3000) {
+            maxDepth = 4;
+        }
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && depthLeft < maxDepth) {
+            //iterative deepening
+            double alpha = double.NegativeInfinity;
+            double beta = double.PositiveInfinity;
+            (bestMoveCurrent, bestEvalCurrent) = NegaMax(board: board, depthLeft: depthLeft, 
+                                                depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
+                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMoveCurrent, timer: timer);
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+                break;
+            }
+            bestMoveFinal = bestMoveCurrent;
+            bestEvalFinal = bestEvalCurrent;
+            //Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}\n", bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated);
+            depthLeft++;
+            
+        }
+    positionsEvaluated = 0;
+    return bestMoveFinal;
+    }
+    public int getNumPieces(Board board) {
+        int numPieces = 0;
+        PieceList[] pieces = board.GetAllPieceLists();
+        foreach (PieceList pieceList in pieces) {
+            numPieces += pieceList.Count;
+        }
+        return numPieces;
+    }
+
+
+public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
+                                bool rootIsWhite, Move prevBestMove, Timer timer)
+{
+    if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || board.IsRepeatedPosition() || 
+                board.FiftyMoveCounter >= 100 || timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE)
+    {
+        return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+    }
+    //put the best move from the previous iteration first in the list
+    System.Span<Move> captures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref captures, true);
+    System.Span<Move> notCaptures = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref notCaptures, false);
+    //remove any elements from notCaptures that are in captures
+    for (int i = 0; i < captures.Length; i++) {
+        for (int j = 0; j < notCaptures.Length; j++) {
+            if (captures[i] == notCaptures[j]) {
+                notCaptures[j] = notCaptures[notCaptures.Length - 1];
+                notCaptures = notCaptures.Slice(0, notCaptures.Length - 1);
+                break;
+            }
+        }
+    }
+    System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
+    captures.CopyTo(legalMoves);
+    notCaptures.CopyTo(legalMoves.Slice(captures.Length));
+    if (legalMoves.Length  == 0) { //stalemate detected
+        return (Move.NullMove, 0);
+    }
+    if (prevBestMove != Move.NullMove) {
+        for (int i = 0; i < legalMoves.Length; i++) {
+            if (legalMoves[i] == prevBestMove) {
+                Move temp = legalMoves[0];
+                legalMoves[0] = legalMoves[i];
+                legalMoves[i] = temp;
+                break;
+            }
+        }
+    }
+    double maxEval = double.NegativeInfinity;
+    Move bestMove = Move.NullMove;
+
+    foreach (Move move in legalMoves)
+    {
+        board.MakeMove(move);
+        double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
+                            color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
+        board.UndoMove(move);
+        if (eval > maxEval)
+        {
+            maxEval = eval;
+            bestMove = move;
+        }
+        alpha = Math.Max(alpha, maxEval);
+        if (alpha >= beta) {
+            break;
+        }
+    }
+    
+    return (bestMove, maxEval);
+}
+
+        public delegate int CalculateScoreDelegate(ulong pieceBitboard, bool isWhite);
+    public double EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
+        PieceType[] pieceTypes = {PieceType.Pawn, PieceType.Bishop, PieceType.Knight, PieceType.Rook, PieceType.Queen};
+        positionsEvaluated++;
+        double whiteScore = 0;
+        double blackScore = 0;
+        if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
+                    return -1;
+                }
+        if (board.IsInCheckmate()) {
+            if (board.IsWhiteToMove) {
+                whiteScore -= 9999999999 - depthSoFar;
+                }
+            else {
+                blackScore -= 9999999999 - depthSoFar;
+                }
+            if (rootIsWhite) {
+                return whiteScore - blackScore;
+                }   
+            else {
+                return blackScore - whiteScore;
+            }
+                }
+        ulong[] whitePieceBitBoards = new ulong[5];
+        ulong[] blackPieceBitBoards = new ulong[5];
+                CalculateScoreDelegate[] calculationFunctions = 
+        {
+            CalculatePawnScore,
+            CalculateBishopScore,
+            CalculateKnightScore,
+            CalculateRookScore,
+            CalculateQueenScore
+        };
+        for (int i = 0; i < 5; i++) {
+            whitePieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: true);
+            blackPieceBitBoards[i] = board.GetPieceBitboard(pieceTypes[i], white: false);
+            whiteScore += calculationFunctions[i](whitePieceBitBoards[i], isWhite: true);
+            blackScore += calculationFunctions[i](blackPieceBitBoards[i], isWhite: false);
+        }
+        
+        int numPieces = getNumPieces(board);
+        bool isEndGame = numPieces <= 12;
+        whiteScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: true), isWhite: true, isEndGame: isEndGame);
+        blackScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: false), isWhite: false, isEndGame: isEndGame);
+
+        // //check castling
+        // if (board.HasKingsideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: true)) {
+        //     whiteScore += 20;
+        // }
+        // if (board.HasKingsideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        // if (board.HasQueensideCastleRight(white: false)) {
+        //     blackScore += 20;
+        // }
+        if (rootIsWhite) {
+            return whiteScore - blackScore;
+        }
+        else {
+            return blackScore - whiteScore;
+        }
+}
+public int CalculatePawnScore(ulong pawnBitboard, bool isWhite) 
+{
+    int score = 0;
+    ulong bit = 1;
+    // We define a basic pawn structure value.
+    
+    int[] pawnStructure = 
+        {
+            0,  0,  0,  0,  0,  0,  0,  0,
+            50, 50, 50, 50, 50, 50, 50, 50,
+            10, 10, 20, 30, 30, 20, 10, 10,
+            5,  5, 10, 25, 25, 10,  5,  5,
+            0,  0,  0, 20, 20,  0,  0,  0,
+            5, -5,-10,  0,  0,-10, -5,  5,
+            5, 10, 10,-20,-20, 10, 10,  5,
+            0,  0,  0,  0,  0,  0,  0,  0
+        };
+    if (isWhite) 
+    {
+        Array.Reverse(pawnStructure);
+    }
+
+
+    
+    for (int i = 0; i < 64; i++)
+    {
+        if ((pawnBitboard & bit) != 0)
+        {
+            score += 100 + pawnStructure[i];
+        }
+        bit <<= 1;
+    }
+
+    return score;
+}
+public int CalculateKnightScore(ulong knightBitboard, bool isWhite) 
+{
+    int score = 0;
+    ulong bit = 1;
+    // We define a basic knight structure value.
+    int[] knightStructure = 
+    {
+            -50,-40,-30,-30,-30,-30,-40,-50,
+            -40,-20,  0,  0,  0,  0,-20,-40,
+            -30,  0, 10, 15, 15, 10,  0,-30,
+            -30,  5, 15, 20, 20, 15,  5,-30,
+            -30,  0, 15, 20, 20, 15,  0,-30,
+            -30,  5, 10, 15, 15, 10,  5,-30,
+            -40,-20,  0,  5,  5,  0,-20,-40,
+            -50,-40,-30,-30,-30,-30,-40,-50,
+    };
+
+    for (int i = 0; i < 64; i++)
+    {
+        if ((knightBitboard & bit) != 0)
+        {
+            score += 320  + knightStructure[i];
+        }
+        bit <<= 1;
+    }
+
+    return  score;
+}
+
+public int CalculateBishopScore(ulong bishopBitboard, bool isWhite) 
+{
+    int score = 0;
+    ulong bit = 1;
+    // We define a basic bishop structure value.
+    int[] bishopStructure = 
+    {
+        -20,-10,-10,-10,-10,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5, 10, 10,  5,  0,-10,
+        -10,  5,  5, 10, 10,  5,  5,-10,
+        -10,  0, 10, 10, 10, 10,  0,-10,
+        -10, 10, 10, 10, 10, 10, 10,-10,
+        -10,  5,  0,  0,  0,  0,  5,-10,
+        -20,-10,-10,-10,-10,-10,-10,-20,
+    };
+
+    for (int i = 0; i < 64; i++)
+    {
+        if ((bishopBitboard & bit) != 0)
+        {
+            score += 330 + bishopStructure[i];
+        }
+        bit <<= 1;
+    }
+
+    return score;
+}
+
+public int CalculateRookScore(ulong rookBitboard, bool isWhite) 
+{
+    int score = 0;
+    ulong bit = 1;
+    // We define a basic rook structure value.
+    int[] rookStructure = 
+    {
+        0,  0,  0,  0,  0,  0,  0,  0,
+        5, 10, 10, 10, 10, 10, 10,  5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        -5,  0,  0,  0,  0,  0,  0, -5,
+        0,  0,  0,  5,  5,  0,  0,  0
+    };
+    if (isWhite){ 
+        Array.Reverse(rookStructure);
+    }
+    for (int i = 0; i < 64; i++)
+    {
+        if ((rookBitboard & bit) != 0)
+        {
+            score += 500 + rookStructure[i];
+        }
+        bit <<= 1;
+    }
+
+    return score;
+}
+
+public int CalculateQueenScore(ulong queenBitboard, bool isWhite) 
+{
+    int score = 0;
+    ulong bit = 1;
+    // We define a basic queen structure value.
+    int[] queenStructure = 
+    {
+        -20,-10,-10, -5, -5,-10,-10,-20,
+        -10,  0,  0,  0,  0,  0,  0,-10,
+        -10,  0,  5,  5,  5,  5,  0,-10,
+        -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+        -10,  5,  5,  5,  5,  5,  0,-10,
+        -10,  0,  5,  0,  0,  0,  0,-10,
+        -20,-10,-10, -5, -5,-10,-10,-20
+    };
+
+    for (int i = 0; i < 64; i++)
+    {
+        if ((queenBitboard & bit) != 0)
+        {
+            score += 900 + queenStructure[i];
+        }
+        bit <<= 1;
+    }
+
+    return score;
+}
+
+public int CalculateKingScore(ulong kingBitboard, bool isWhite, bool isEndGame) 
+{
+    int score = 0;
+    ulong bit = 1;
+    //we define a beginning/middle game king structure value
+        int[] midKingStructure = 
+    {
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -30,-40,-40,-50,-50,-40,-40,-30,
+            -20,-30,-30,-40,-40,-30,-30,-20,
+            -10,-20,-20,-20,-20,-20,-20,-10,
+            20, 20,  0,  0,  0,  0, 20, 20,
+            20, 30, 10,  0,  0, 10, 30, 20
+    };
+            int[] endKingStructure = 
+    {
+        -50,-40,-30,-20,-20,-30,-40,-50,
+        -30,-20,-10,  0,  0,-10,-20,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 30, 40, 40, 30,-10,-30,
+        -30,-10, 20, 30, 30, 20,-10,-30,
+        -30,-30,  0,  0,  0,  0,-30,-30,
+        -50,-30,-30,-30,-30,-30,-30,-50
+    };
+    if (isWhite) {
+        Array.Reverse(midKingStructure);
+        Array.Reverse(endKingStructure);
+    }
+    int[] kingStructure = isEndGame ? endKingStructure : midKingStructure;
+    for (int i = 0; i < 64; i++)
+    {
+        if ((kingBitboard & bit) != 0)
+        {
+            score +=  kingStructure[i];
+        }
+        bit <<= 1;
+    }
+    return score;
+}
+
+
+}
+
+public class MyIterDeepV1 : IChessBot
+{
+    public int TIME_PER_MOVE =  1000;
+    public Move Think(Board board, Timer timer)
+    {
+        // Move[] legalMoves = getMovesSorted(board);
+        int numPieces = getNumPieces(board);
+        int maxDepth = 150 / numPieces;
+        int depthLeft = 1;
+        Move bestMoveFinal = Move.NullMove;
+        double bestEvalFinal = double.NegativeInfinity;
+        Move bestMoveCurrent = Move.NullMove;
+        double bestEvalCurrent = double.NegativeInfinity;
+        if (timer.MillisecondsRemaining < 10000) {
+            maxDepth = 7;
+        }
+        if (timer.MillisecondsRemaining < 5000) {
+            maxDepth = 5;
+        }
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && depthLeft < maxDepth) {
+            //iterative deepening
+            double alpha = double.NegativeInfinity;
+            double beta = double.PositiveInfinity;
+            (bestMoveCurrent, bestEvalCurrent) = NegaMax(board: board, depthLeft: depthLeft, 
+                                                depthSoFar: 0, color: -1, alpha: alpha, beta: beta, 
+                                                rootIsWhite: !board.IsWhiteToMove, prevBestMove: bestMoveCurrent, timer: timer);
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+                break;
+            }
+            bestMoveFinal = bestMoveCurrent;
+            bestEvalFinal = bestEvalCurrent;
+            //Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveFinal, bestEvalFinal, depthLeft);
+            depthLeft++;
+            
+        }
+    return bestMoveFinal;
+    }
+    public int getNumPieces(Board board) {
+        int numPieces = 0;
+        PieceList[] pieces = board.GetAllPieceLists();
+        foreach (PieceList pieceList in pieces) {
+            numPieces += pieceList.Count;
+        }
+        return numPieces;
+    }
+
+
+public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
+                                bool rootIsWhite, Move prevBestMove, Timer timer)
+{
+    if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || board.IsRepeatedPosition() || 
+                board.FiftyMoveCounter >= 100 || timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE)
+    {
+        return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+    }
+    //put the best move from the previous iteration first in the list
+    System.Span<Move> legalMoves = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref legalMoves);
+    if (legalMoves.Length  == 0) { //stalemate detected
+        return (Move.NullMove, 0);
+    }
+    if (prevBestMove != Move.NullMove) {
+        for (int i = 0; i < legalMoves.Length; i++) {
+            if (legalMoves[i] == prevBestMove) {
+                Move temp = legalMoves[0];
+                legalMoves[0] = legalMoves[i];
+                legalMoves[i] = temp;
+                break;
+            }
+        }
+    }
+    double maxEval = double.NegativeInfinity;
+    Move bestMove = Move.NullMove;
+
+    foreach (Move move in legalMoves)
+    {
+        board.MakeMove(move);
+        double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
+                            color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
+        board.UndoMove(move);
+        if (eval > maxEval)
+        {
+            maxEval = eval;
+            bestMove = move;
+        }
+        alpha = Math.Max(alpha, maxEval);
+        if (alpha >= beta) {
+            break;
+        }
+    }
+    
+    return (bestMove, maxEval);
+}
+
+
+
+    public double EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
+        double whiteScore = 0;
+        double blackScore = 0;
+        PieceList[] pieces = board.GetAllPieceLists();
+        if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
+            return -1;
+        }
+        if (board.IsInCheckmate()) {
+            if (board.IsWhiteToMove) {
+                whiteScore -= 9999999999 - depthSoFar;
+                }
+            else {
+                blackScore -= 9999999999 - depthSoFar;
+                }
+            if (rootIsWhite) {
+                return whiteScore - blackScore;
+                }   
+            else {
+                return blackScore - whiteScore;
+            }
+        }
+        foreach (PieceList pieceList in pieces) {
+            if (pieceList.TypeOfPieceInList == PieceType.Pawn) { //pawn
+                if (pieceList.IsWhitePieceList) {
+                    whiteScore += 100 * pieceList.Count;
+                    // get the pawns square
+                    for (int i = 0; i < pieceList.Count; i++) {
+                        int rank = pieceList.GetPiece(i).Square.Rank;
+                        int file = pieceList.GetPiece(i).Square.File;
+                        // if pawn is pushed its worth more
+                        whiteScore += (rank >= 3 && rank <= 7) ? 1 << (rank - 1) : 0;
+                        //if pawn is on e2 or d2 -20
+                        if (rank == 1 && (file == 4 ||  file == 3)) {
+                            whiteScore -= 50;
+                        }
+                    }
+                }
+                else {
+                    blackScore += 100 * pieceList.Count;
+                    // get the pawns square
+                    for (int i = 0; i < pieceList.Count; i++) {
+                        int rank = pieceList.GetPiece(i).Square.Rank;
+                        int file = pieceList.GetPiece(i).Square.File;
+                        // if pawn is pushed its worth more
+                        blackScore += (rank >= 2 && rank <= 6) ? 1 << (7 - rank) : 0;
+                        //if pawn is on e7 or d7 -20
+                        if (rank == 6 && (file == 4 ||  file == 3)) {
+                            blackScore -= 50;
+                        }
+                    }
+                }
+            }
+            else if (pieceList.TypeOfPieceInList == PieceType.Knight) { //knight
+                if (pieceList.IsWhitePieceList) {
+                    whiteScore += 300 * pieceList.Count;
+                }
+                else {
+                    blackScore += 300 * pieceList.Count;
+                }
+            }
+            else if (pieceList.TypeOfPieceInList == PieceType.Bishop) { //bishop
+                if (pieceList.IsWhitePieceList) {
+                    whiteScore += 320 * pieceList.Count;
+                }
+                else {
+                    blackScore += 320 * pieceList.Count;
+                }
+            }
+            else if (pieceList.TypeOfPieceInList == PieceType.Rook) { //rook
+                if (pieceList.IsWhitePieceList) {
+                    whiteScore += 500 * pieceList.Count;
+                }
+                else {
+                    blackScore += 500 * pieceList.Count;
+                }
+            }
+            else if (pieceList.TypeOfPieceInList == PieceType.Queen) { //queen
+                if (pieceList.IsWhitePieceList) {
+                    whiteScore += 900 * pieceList.Count;
+                }
+                else {
+                    blackScore += 900 * pieceList.Count;
+                }
+            }
+        }
+        // if (board.IsInCheck()) { //search extension if in check
+        //     if (board.IsWhiteToMove) {
+        //         // new timer 
+        //         Timer tempTimer = new Timer(500);
+        //         //tempColor = -1 if root is white
+        //         int tempColor = rootIsWhite ? -1 : 1;
+        //         return NegaMax(board: board, depthLeft: 1, depthSoFar: 0, color: tempColor, alpha: double.NegativeInfinity, beta: double.PositiveInfinity, 
+        //         rootIsWhite: rootIsWhite, Move.NullMove, tempTimer).Item2;
+        //     }
+        //     else {
+        //         Timer tempTimer = new Timer(500);
+        //         int tempColor = rootIsWhite ? 1 : -1;
+        //         return NegaMax(board: board, depthLeft: 1, depthSoFar: 0, color: tempColor, alpha: double.NegativeInfinity, beta: double.PositiveInfinity, 
+        //         rootIsWhite: rootIsWhite, Move.NullMove, tempTimer).Item2;
+        //     }
+        // }
+        if (rootIsWhite) {
+            return whiteScore - blackScore;
+        }
+        else {
+            return blackScore - whiteScore;
+        }
+    }
+
+    
+}
 
 public class MyABNegamaxV2 : IChessBot
 {
