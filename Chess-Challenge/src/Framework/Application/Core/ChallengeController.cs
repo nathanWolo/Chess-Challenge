@@ -32,6 +32,7 @@ namespace ChessChallenge.Application
             MyIterDeepV1, 
             MyIterDeepPSEV1,
             MyIterDeepPSEV2,
+            MyTTV1,
             Benchmark1,
             Benchmark2,
         }
@@ -126,7 +127,16 @@ namespace ChessChallenge.Application
             isPlaying = true;
             NotifyTurnToMove();
         }
-
+public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
+{
+    return type switch
+    {
+        PlayerType.MyBot => new MyBot(),
+        PlayerType.EvilBot => new EvilBot(),
+        // If you have other bot types, you can add them here as well
+        _ => null
+    };
+}
         void BotThinkerThread()
         {
             int threadID = gameID;
@@ -231,6 +241,7 @@ namespace ChessChallenge.Application
                 PlayerType.MyIterDeepV1 => new ChessPlayer(new MyIterDeepV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV1 => new ChessPlayer(new MyIterDeepPSEV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV2 => new ChessPlayer(new MyIterDeepPSEV2(), type, GameDurationMilliseconds),
+                PlayerType.MyTTV1 => new ChessPlayer(new MyTTV1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark1 => new ChessPlayer(new Benchmark1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark2 => new ChessPlayer(new Benchmark2(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)
