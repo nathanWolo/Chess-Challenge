@@ -19,7 +19,21 @@ namespace ChessChallenge.Application
         {
             Human,
             MyBot,
-            EvilBot
+            EvilBot,
+            MyNaiveMinimax,
+            MyABMinimax,
+
+            MyABNegamax,
+
+            MyABNegamaxV2,
+
+            DiscordPracticeBot,
+
+            MyIterDeepV1, 
+            MyIterDeepPSEV1,
+            MyIterDeepPSEV2,
+            Benchmark1,
+            Benchmark2,
         }
 
         // Game state
@@ -210,6 +224,15 @@ namespace ChessChallenge.Application
             {
                 PlayerType.MyBot => new ChessPlayer(new MyBot(), type, GameDurationMilliseconds),
                 PlayerType.EvilBot => new ChessPlayer(new EvilBot(), type, GameDurationMilliseconds),
+                PlayerType.MyNaiveMinimax => new ChessPlayer(new MyNaiveMinimax(), type, GameDurationMilliseconds),
+                PlayerType.MyABMinimax => new ChessPlayer(new MyABMinimax(), type, GameDurationMilliseconds),
+                PlayerType.MyABNegamax => new ChessPlayer(new MyABNegamax(), type, GameDurationMilliseconds),
+                PlayerType.MyABNegamaxV2 => new ChessPlayer(new MyABNegamaxV2(), type, GameDurationMilliseconds),
+                PlayerType.MyIterDeepV1 => new ChessPlayer(new MyIterDeepV1(), type, GameDurationMilliseconds),
+                PlayerType.MyIterDeepPSEV1 => new ChessPlayer(new MyIterDeepPSEV1(), type, GameDurationMilliseconds),
+                PlayerType.MyIterDeepPSEV2 => new ChessPlayer(new MyIterDeepPSEV2(), type, GameDurationMilliseconds),
+                PlayerType.Benchmark1 => new ChessPlayer(new Benchmark1(), type, GameDurationMilliseconds),
+                PlayerType.Benchmark2 => new ChessPlayer(new Benchmark2(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)
             };
         }
