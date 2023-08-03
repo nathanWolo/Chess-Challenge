@@ -16,7 +16,7 @@ public class MyBot : IChessBot
         }
     }
 
-    const int entries = (1 << 25);
+    const int entries = (1 << 22);
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
@@ -47,7 +47,7 @@ public class MyBot : IChessBot
             bestMoveFinal = bestMoveCurrent;
             bestEvalFinal = bestEvalCurrent;
             Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
-                            bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
+                           bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
             depthLeft += 1;
             
         }

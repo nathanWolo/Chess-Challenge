@@ -57,15 +57,15 @@ namespace ChessChallenge.UCI
             }
 
             string fen = FenUtility.CurrentFen(board);
-            Console.WriteLine(fen);
+            //Console.WriteLine(fen);
         }
 
         void GoCommand(string[] args)
         {
             int wtime = 0, btime = 0;
             API.Board apiBoard = new API.Board(board);
-            Console.WriteLine(FenUtility.CurrentFen(board));
-            Console.WriteLine(apiBoard.GetFenString());
+            // Console.WriteLine(FenUtility.CurrentFen(board));
+            // Console.WriteLine(apiBoard.GetFenString());
             for (int i = 0; i < args.Length; i++)
             {
                 if (args[i] == "wtime")
@@ -74,6 +74,10 @@ namespace ChessChallenge.UCI
                 }
                 else if (args[i] == "btime")
                 {
+                    btime = Int32.Parse(args[i + 1]);
+                }
+                else if (args[i] == "movetime"){
+                    wtime = Int32.Parse(args[i + 1]);
                     btime = Int32.Parse(args[i + 1]);
                 }
             }
@@ -99,8 +103,8 @@ namespace ChessChallenge.UCI
             switch (tokens[0])
             {
                 case "uci":
-                    Console.WriteLine("id name weaponbot");
-                    Console.WriteLine("id author Nathan Woloshyn");
+                    // Console.WriteLine("id name Onion");
+                    // Console.WriteLine("id author Nathan Woloshyn");
                     Console.WriteLine("uciok");
                     break;
                 case "ucinewgame":
