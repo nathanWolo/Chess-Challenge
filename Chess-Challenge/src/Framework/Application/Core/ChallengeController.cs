@@ -15,6 +15,8 @@ namespace ChessChallenge.Application
 {
     public class ChallengeController
     {
+        int totalMovesPlayed = 0;
+        public int trueTotalMovesPlayed = 0;
         public enum PlayerType
         {
             Human,
@@ -33,6 +35,7 @@ namespace ChessChallenge.Application
             MyIterDeepPSEV1,
             MyIterDeepPSEV2,
             MyTTV1,
+            MyAspirationV1,
             Benchmark1,
             Benchmark2,
         }
@@ -96,7 +99,8 @@ namespace ChessChallenge.Application
             // End any ongoing game
             EndGame(GameResult.DrawByArbiter, log: false, autoStartNextBotMatch: false);
             gameID = rng.Next();
-
+            totalMovesPlayed = 0;
+            trueTotalMovesPlayed += totalMovesPlayed;
             // Stop prev task and create a new one
             if (RunBotsOnSeparateThread)
             {
@@ -172,6 +176,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
             {
                 API.Timer timer = new(PlayerToMove.TimeRemainingMs, PlayerNotOnMove.TimeRemainingMs, GameDurationMilliseconds, IncrementMilliseconds);
                 API.Move move = PlayerToMove.Bot.Think(botBoard, timer);
+                totalMovesPlayed++;
                 return new Move(move.RawValue);
             }
             catch (Exception e)
@@ -241,7 +246,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.MyIterDeepV1 => new ChessPlayer(new MyIterDeepV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV1 => new ChessPlayer(new MyIterDeepPSEV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV2 => new ChessPlayer(new MyIterDeepPSEV2(), type, GameDurationMilliseconds),
-                PlayerType.MyTTV1 => new ChessPlayer(new MyTTV1(), type, GameDurationMilliseconds),
+                PlayerType.MyAspirationV1 => new ChessPlayer(new MyAspirationV1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark1 => new ChessPlayer(new Benchmark1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark2 => new ChessPlayer(new Benchmark2(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)

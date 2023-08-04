@@ -23,36 +23,45 @@ public class MyBot : IChessBot
     public int TIME_PER_MOVE = 1000;
     public Move Think(Board board, Timer timer)
     {
-        // Move[] legalMoves = getMovesSorted(board);
         int numPieces = getNumPieces(board);
         int depthLeft = 2;
-        Move bestMoveFinal = Move.NullMove;
-        double bestEvalFinal = double.NegativeInfinity;
-        Move bestMoveCurrent = Move.NullMove;
-        double bestEvalCurrent = double.NegativeInfinity;
-        // TIME_PER_MOVE = timer.MillisecondsRemaining / numPieces;
-        // if (timer.MillisecondsRemaining < 6000) {
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
-        // }
+        double alpha = double.NegativeInfinity;
+        double beta = double.PositiveInfinity;
+        Move bestMove = Move.NullMove;
+        double maxEval;
+        double aspiration = 100; //1 pawn window
+        Move bestMoveTemp = Move.NullMove;
+
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
-            double alpha = double.NegativeInfinity;
-            double beta = double.PositiveInfinity;
-            (bestMoveCurrent, bestEvalCurrent) = NegaMax(board: board, depthLeft: depthLeft, 
+            (bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
-                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMoveCurrent, timer: timer);
-            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
+            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
+                bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {https://opengraph.githubassets.com/cd79a4364c5d81d7378baa14ad99a4f19a83866a4192908ecb52a65085cb0c1e/GheorgheMorari/Chess-Challenge
                 break;
             }
-            bestMoveFinal = bestMoveCurrent;
-            bestEvalFinal = bestEvalCurrent;
-            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
-                           bestMoveFinal, bestEvalFinal, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
-            depthLeft += 1;
+            //aspiration window
+            if ((maxEval <= alpha || maxEval >= beta) && maxEval > -999999999 && maxEval < 999999999) { //fail low or high, ignore out of checkmate bounds and draws
+                Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
+                alpha = alpha - aspiration;
+                beta = beta + aspiration;
+                aspiration *= 2;
+            }
+            else {
+                alpha = maxEval - aspiration;
+                beta = maxEval + aspiration;
+                Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
+                depthLeft += 1;
+                aspiration = 100;
+                bestMove = bestMoveTemp;
+            }
             
         }
     positionsEvaluated = 0;
-    return bestMoveFinal;
+    return bestMove;
     }
     public int getNumPieces(Board board) {
         int numPieces = 0;
@@ -69,7 +78,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
 {
     bool root = depthSoFar == 0;
     if(!root && board.IsRepeatedPosition()) {
-            return (Move.NullMove, 0);
+            return (Move.NullMove, color * -1);
     }
 
     ulong key = board.ZobristKey;
@@ -80,11 +89,26 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
                 || entry.bound == 2 && entry.score >= beta // lower bound, fail high
                 || entry.bound == 1 && entry.score <= alpha // upper bound, fail low
         )) {
+///TODO: implement bound narrowing (source: wikipedia)
+///    ttEntry := transpositionTableLookup(node)
+    // if ttEntry is valid and ttEntry.depth ≥ depth then
+    //     if ttEntry.flag = EXACT then
+    //         return ttEntry.value
+    //     else if ttEntry.flag = LOWERBOUND then
+    //         α := max(α, ttEntry.value)
+    //     else if ttEntry.flag = UPPERBOUND then
+    //         β := min(β, ttEntry.value)
+
+    //     if α ≥ β then
+    //         return ttEntry.value
+
         return (Move.NullMove, entry.score);
     }
-
+    if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
+        return (Move.NullMove, color * -77777777777);
+    }
     if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || 
-                board.FiftyMoveCounter >= 100 || timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE)
+                board.FiftyMoveCounter >= 100)
     {
         return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
     }
@@ -123,8 +147,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     double maxEval = double.NegativeInfinity;
     Move bestMove = Move.NullMove;
     double origAlpha = alpha;
-    foreach (Move move in legalMoves)
-    {
+    foreach (Move move in legalMoves){
         board.MakeMove(move);
         double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
                             color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
@@ -138,7 +161,8 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         if (alpha >= beta) {
             break;
         }
-    }   int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1;
+    }   
+    int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
         tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
