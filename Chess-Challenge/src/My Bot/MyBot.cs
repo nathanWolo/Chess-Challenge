@@ -125,8 +125,12 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         }
     }
 
-    // //TODO: sort captures by MVV-LVA
-
+    //TODO: sort captures by MVV-LVA
+    System.Span<int> captureScores = stackalloc int[captures.Length];
+    for (int i = 0; i < captures.Length; i++) {
+        captureScores[i] = (int)captures[i].MovePieceType - (int)captures[i].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
+    }
+    System.MemoryExtensions.Sort(captureScores, captures);
 
     System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
     captures.CopyTo(legalMoves);
