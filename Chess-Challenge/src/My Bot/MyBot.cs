@@ -24,15 +24,14 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer timer)
     {
         int numPieces = getNumPieces(board);
-        int depthLeft = 2;
+        int depthLeft = 1;
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
         double alpha = double.NegativeInfinity;
         double beta = double.PositiveInfinity;
         Move bestMove = Move.NullMove;
         double maxEval;
-        double aspiration = 100; //1 pawn window
         Move bestMoveTemp = Move.NullMove;
-
+        double aspiration = 100;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
             (bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
@@ -40,7 +39,7 @@ public class MyBot : IChessBot
                                                 rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
             Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
                 bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
-            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {https://opengraph.githubassets.com/cd79a4364c5d81d7378baa14ad99a4f19a83866a4192908ecb52a65085cb0c1e/GheorgheMorari/Chess-Challenge
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
             //aspiration window
@@ -54,7 +53,7 @@ public class MyBot : IChessBot
                 alpha = maxEval - aspiration;
                 beta = maxEval + aspiration;
                 Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
-                depthLeft += 1;
+                depthLeft++;
                 aspiration = 100;
                 bestMove = bestMoveTemp;
             }
@@ -86,8 +85,8 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
 
     if(!root && entry.key == key && entry.depth >= depthLeft && (
             entry.bound == 3 // exact score
-                || entry.bound == 2 && entry.score >= beta // lower bound, fail high
-                || entry.bound == 1 && entry.score <= alpha // upper bound, fail low
+                || (entry.bound == 2 && entry.score >= beta )// lower bound, fail high
+                || (entry.bound == 1 && entry.score <= alpha )// upper bound, fail low
         )) {
 ///TODO: implement bound narrowing (source: wikipedia)
 ///    ttEntry := transpositionTableLookup(node)
@@ -116,16 +115,18 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     board.GetLegalMovesNonAlloc(ref captures, true);
     System.Span<Move> notCaptures = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref notCaptures, false);
-    //remove any elements from notCaptures that are in captures
-    for (int i = 0; i < captures.Length; i++) {
-        for (int j = 0; j < notCaptures.Length; j++) {
-            if (captures[i] == notCaptures[j]) {
-                notCaptures[j] = notCaptures[notCaptures.Length - 1];
-                notCaptures = notCaptures.Slice(0, notCaptures.Length - 1);
-                break;
-            }
+    //remove any elements from notCaptures that are captures
+    for (int i = 0; i < notCaptures.Length; i++) {
+        if (notCaptures[i].IsCapture) {
+            //remove this capture from notCaptures
+            notCaptures[i] = notCaptures[notCaptures.Length - 1];
+            notCaptures = notCaptures.Slice(0, notCaptures.Length - 1);
+            i--;
         }
     }
+
+    // //TODO: sort captures by MVV-LVA
+
 
     System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
     captures.CopyTo(legalMoves);

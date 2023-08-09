@@ -42,9 +42,9 @@ namespace ChessChallenge.Example
             (bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
-            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
-                bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
-            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {https://opengraph.githubassets.com/cd79a4364c5d81d7378baa14ad99a4f19a83866a4192908ecb52a65085cb0c1e/GheorgheMorari/Chess-Challenge
+            //Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
+                //bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
+            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
             //aspiration window
