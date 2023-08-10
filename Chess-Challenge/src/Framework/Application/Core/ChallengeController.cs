@@ -248,6 +248,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.MyIterDeepV1 => new ChessPlayer(new MyIterDeepV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV1 => new ChessPlayer(new MyIterDeepPSEV1(), type, GameDurationMilliseconds),
                 PlayerType.MyIterDeepPSEV2 => new ChessPlayer(new MyIterDeepPSEV2(), type, GameDurationMilliseconds),
+                PlayerType.MyTTV1 => new ChessPlayer(new MyTTV1(), type, GameDurationMilliseconds),
                 PlayerType.MyAspirationV1 => new ChessPlayer(new MyAspirationV1(), type, GameDurationMilliseconds),
                 PlayerType.MyAspirationV2 => new ChessPlayer(new MyAspirationV2(), type, GameDurationMilliseconds),
                 PlayerType.MyAspirationV3 => new ChessPlayer(new MyAspirationV3(), type, GameDurationMilliseconds),

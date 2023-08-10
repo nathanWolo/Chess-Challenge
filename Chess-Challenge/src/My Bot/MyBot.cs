@@ -23,7 +23,6 @@ public class MyBot : IChessBot
     public int TIME_PER_MOVE = 1000;
     public Move Think(Board board, Timer timer)
     {
-        int numPieces = getNumPieces(board);
         int depthLeft = 1;
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
         double alpha = double.NegativeInfinity;
@@ -31,7 +30,7 @@ public class MyBot : IChessBot
         Move bestMove = Move.NullMove;
         double maxEval;
         Move bestMoveTemp = Move.NullMove;
-        double aspiration = 100;
+        double aspiration = 50;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
             (bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
@@ -45,8 +44,8 @@ public class MyBot : IChessBot
             //aspiration window
             if ((maxEval <= alpha || maxEval >= beta) && maxEval > -999999999 && maxEval < 999999999) { //fail low or high, ignore out of checkmate bounds and draws
                 Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
-                alpha = alpha - aspiration;
-                beta = beta + aspiration;
+                alpha -= aspiration;
+                beta += aspiration;
                 aspiration *= 2;
             }
             else {
@@ -54,7 +53,7 @@ public class MyBot : IChessBot
                 beta = maxEval + aspiration;
                 Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
                 depthLeft++;
-                aspiration = 100;
+                aspiration = 50;
                 bestMove = bestMoveTemp;
             }
             
@@ -62,7 +61,7 @@ public class MyBot : IChessBot
     positionsEvaluated = 0;
     return bestMove;
     }
-    public int getNumPieces(Board board) {
+    public int GetNumPieces(Board board) {
         int numPieces = 0;
         PieceList[] pieces = board.GetAllPieceLists();
         foreach (PieceList pieceList in pieces) {
@@ -215,7 +214,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
             blackScore += calculationFunctions[i](blackPieceBitBoards[i], isWhite: false);
         }
         
-        int numPieces = getNumPieces(board);
+        int numPieces = GetNumPieces(board);
         bool isEndGame = numPieces <= 12;
         whiteScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: true), isWhite: true, isEndGame: isEndGame);
         blackScore += CalculateKingScore(board.GetPieceBitboard(PieceType.King, white: false), isWhite: false, isEndGame: isEndGame);

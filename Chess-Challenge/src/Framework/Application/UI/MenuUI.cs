@@ -42,8 +42,8 @@ namespace ChessChallenge.Application
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyABNegamaxV2);
             }
             buttonPos = UIHelper.Scale(new Vector2(405, 210)); buttonSize = UIHelper.Scale(new Vector2(200, 55));
-            if (NextButtonInRow("vs IterDeepPSEV2", ref buttonPos, spacing, buttonSize)) {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyIterDeepPSEV2);
+            if (NextButtonInRow("vs TTV1", ref buttonPos, spacing, buttonSize)) {
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyTTV1);
             }
             if (NextButtonInRow("vs AspirationV3", ref buttonPos, spacing, buttonSize)) {
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyAspirationV3);

@@ -1274,7 +1274,7 @@ public class MyTTV1 : IChessBot
         }
     }
 
-    const int entries = (1 << 25);
+    const int entries = (1 << 22);
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
