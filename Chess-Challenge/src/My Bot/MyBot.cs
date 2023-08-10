@@ -124,46 +124,30 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     {
         return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
     }
-    System.Span<Move> captures = stackalloc Move[256];
-    board.GetLegalMovesNonAlloc(ref captures, true);
-    System.Span<Move> notCaptures = stackalloc Move[256];
-    board.GetLegalMovesNonAlloc(ref notCaptures, false);
-    //remove any elements from notCaptures that are captures
-    for (int i = 0; i < notCaptures.Length; i++) {
-        if (notCaptures[i].IsCapture) {
-            //remove this capture from notCaptures
-            notCaptures[i] = notCaptures[^1];
-            notCaptures = notCaptures[..^1];
-            i--;
-        }
-    }
-
-    //TODO: sort captures by MVV-LVA
-    System.Span<int> captureScores = stackalloc int[captures.Length];
-    for (int i = 0; i < captures.Length; i++) {
-        captureScores[i] = (int)captures[i].MovePieceType - (int)captures[i].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
-    }
-    System.MemoryExtensions.Sort(captureScores, captures);
-
-    System.Span<Move> legalMoves = stackalloc Move[captures.Length + notCaptures.Length];
-    captures.CopyTo(legalMoves);
-    notCaptures.CopyTo(legalMoves[captures.Length..]);
+    System.Span<Move> legalMoves = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref legalMoves, false);
     if (legalMoves.Length  == 0) { //stalemate detected
-        return (Move.NullMove, 0);
+        return (Move.NullMove, color * -1);
     }
-    //put the best move from the previous iteration first in the list
-    if (prevBestMove != Move.NullMove) {
-        for (int i = 0; i < legalMoves.Length; i++) {
-            if (legalMoves[i] == prevBestMove) {
-                    (legalMoves[i], legalMoves[0]) = (legalMoves[0], legalMoves[i]);
-                    break;
-            }
+    System.Span<int> scores = stackalloc int[legalMoves.Length];
+    for (int i = 0; i < legalMoves.Length; i++) {
+        if (legalMoves[i] == prevBestMove) {
+            scores[i] = -999;
         }
-    }
+        else if (legalMoves[i].IsCapture) {
+            scores[i] = (int)legalMoves[i].MovePieceType - 10*(int)legalMoves[i].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
+        }
+        else {
+            scores[i] = 0;
+        }
+
+        }
+    System.MemoryExtensions.Sort(scores, legalMoves);
     double maxEval = double.NegativeInfinity;
     Move bestMove = Move.NullMove;
     double origAlpha = alpha;
-    foreach (Move move in legalMoves){
+    for (int i =0; i < legalMoves.Length; i++) {
+        Move move = legalMoves[i];
         board.MakeMove(move);
         double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
                             color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
@@ -177,7 +161,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         if (alpha >= beta) {
             break;
         }
-    }   
+    }
     int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
