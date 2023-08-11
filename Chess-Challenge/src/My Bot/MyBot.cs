@@ -1,8 +1,5 @@
 ﻿using ChessChallenge.API;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
 
 public class MyBot : IChessBot
 {
@@ -15,8 +12,7 @@ public class MyBot : IChessBot
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
-
-    const int entries = (1 << 22);
+    const int entries = 256 * 1024^2 / 28;
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
@@ -39,15 +35,13 @@ public class MyBot : IChessBot
     {
         int depthLeft = 1;
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
-        double alpha = double.NegativeInfinity;
-        double beta = double.PositiveInfinity;
+        double alpha = double.NegativeInfinity, beta = double.PositiveInfinity;
         Move bestMove = Move.NullMove;
         double maxEval;
-        Move bestMoveTemp = Move.NullMove;
         double aspiration = 50;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
-            (bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
+            ( Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
             Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
@@ -75,14 +69,6 @@ public class MyBot : IChessBot
     positionsEvaluated = 0;
     return bestMove;
     }
-    public int GetNumPieces(Board board) {
-        int numPieces = 0;
-        PieceList[] pieces = board.GetAllPieceLists();
-        foreach (PieceList pieceList in pieces) {
-            numPieces += pieceList.Count;
-        }
-        return numPieces;
-    }
 
 
 public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
@@ -92,7 +78,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     if(!root && board.IsRepeatedPosition()) {
             return (Move.NullMove, color * -1);
     }
-
+    Move bestMove = Move.NullMove;
     ulong key = board.ZobristKey;
     TTEntry entry = tt[key % entries];
 
@@ -114,22 +100,22 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     //     if α ≥ β then
     //         return ttEntry.value
 
-        return (Move.NullMove, entry.score);
+        return (bestMove, entry.score);
     }
     if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
-        return (Move.NullMove, color * -77777777777);
+        return (bestMove, color * -77777777777);
     }
     if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || 
                 board.FiftyMoveCounter >= 100)
     {
-        return (Move.NullMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+        return (bestMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
     }
-    System.Span<Move> legalMoves = stackalloc Move[256];
+    Span<Move> legalMoves = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref legalMoves, false);
     if (legalMoves.Length  == 0) { //stalemate detected
-        return (Move.NullMove, color * -1);
+        return (bestMove, color * -1);
     }
-    System.Span<int> scores = stackalloc int[legalMoves.Length];
+    Span<int> scores = stackalloc int[legalMoves.Length];
     for (int i = 0; i < legalMoves.Length; i++) {
         if (legalMoves[i] == prevBestMove) {
             scores[i] = -999;
@@ -142,15 +128,14 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         }
 
         }
-    System.MemoryExtensions.Sort(scores, legalMoves);
+    MemoryExtensions.Sort(scores, legalMoves);
     double maxEval = double.NegativeInfinity;
-    Move bestMove = Move.NullMove;
     double origAlpha = alpha;
     for (int i =0; i < legalMoves.Length; i++) {
         Move move = legalMoves[i];
         board.MakeMove(move);
-        double eval = -NegaMax(board: board, depthLeft: depthLeft - 1, depthSoFar: depthSoFar + 1, 
-                            color: -color, alpha: -beta, beta: -alpha, rootIsWhite: rootIsWhite, Move.NullMove, timer).Item2;
+        double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
+                             -color, -beta, -alpha,  rootIsWhite, Move.NullMove, timer).Item2;
         board.UndoMove(move);
         if (eval > maxEval)
         {
@@ -165,7 +150,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
-        tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
+    tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
     
     return (bestMove, maxEval);
 }
@@ -174,24 +159,15 @@ public int GetPstVal(int psq) {
     }
  public int EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
         positionsEvaluated++;
-        int whiteScore = 0;
-        int blackScore = 0;
+        int whiteScore = 0, blackScore = 0;
         if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
                     return -1;
                 }
         if (board.IsInCheckmate()) {
-            if (board.IsWhiteToMove) {
-                whiteScore -= 99999999 - depthSoFar;
-                }
-            else {
-                blackScore -= 99999999 - depthSoFar;
-                }
-            if (rootIsWhite) {
-                return whiteScore - blackScore;
-                }   
-            else {
-                return blackScore - whiteScore;
-            }
+            (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= 99999999 - depthSoFar;
+
+            return rootIsWhite ? whiteScore - blackScore : blackScore - whiteScore;
+
         }
         
         int mg = 0, eg = 0, phase = 0;
@@ -217,11 +193,7 @@ public int GetPstVal(int psq) {
 
         int overallScore = (mg * phase + eg * (24 - phase)) / 24;
 
-        if (rootIsWhite) {
-            return overallScore;
-        }
-        else {
-            return -overallScore;
-        }
+        return rootIsWhite ? overallScore : -overallScore;
+
     }
 }
