@@ -12,11 +12,13 @@ public class MyBot : IChessBot
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
-    const int entries = 256 * 1024^2 / 28;
+    const int entries = 128 * 1024^2 / 28;
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
     public int TIME_PER_MOVE = 1000;
+
+
     int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
     int[] piecePhase = {0, 0, 1, 1, 2, 4, 0};
     ulong[] psts = {657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 
@@ -41,7 +43,7 @@ public class MyBot : IChessBot
         double aspiration = 50;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
-            ( Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
+            (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
             Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
@@ -67,6 +69,10 @@ public class MyBot : IChessBot
             
         }
     positionsEvaluated = 0;
+    if (bestMove == Move.NullMove) {
+        Console.WriteLine("NO LEGAL MOVES");
+        return board.GetLegalMoves()[0];
+    }
     return bestMove;
     }
 
