@@ -54,8 +54,10 @@ public class MyBot : IChessBot
             //aspiration window
             if ((maxEval <= alpha || maxEval >= beta) && maxEval > -999999 && maxEval < 999999) { //fail low or high, ignore out of checkmate bounds and draws
                 Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
-                alpha -= aspiration;
-                beta += aspiration;
+                if (maxEval <= alpha) alpha -= aspiration;
+                else beta += aspiration;
+                // alpha -= aspiration;
+                // beta += aspiration;
                 aspiration *= 2;
             }
             else {
