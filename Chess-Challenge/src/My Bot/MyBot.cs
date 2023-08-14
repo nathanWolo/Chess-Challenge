@@ -12,11 +12,13 @@ public class MyBot : IChessBot
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
-    const int entries = 128 * 1024^2 / 28;
+    const int entries = 128 * 1024^2 / 28; //cheating for lichess, revert to 128 * 1024^2 / 28 for local testing
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
     public int TIME_PER_MOVE = 1000;
+    public int OUT_OF_TIME_SCORE = 77777;
+    public int CHECKMATE_SCORE = 9999999;
 
 
     int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
@@ -36,7 +38,7 @@ public class MyBot : IChessBot
     public Move Think(Board board, Timer timer)
     {
         int depthLeft = 1;
-        TIME_PER_MOVE = timer.MillisecondsRemaining / 30;
+        TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         double alpha = double.NegativeInfinity, beta = double.PositiveInfinity;
         Move bestMove = Move.NullMove;
         double maxEval;
@@ -52,7 +54,7 @@ public class MyBot : IChessBot
                 break;
             }
             //aspiration window
-            if ((maxEval <= alpha || maxEval >= beta) && maxEval > -999999 && maxEval < 999999) { //fail low or high, ignore out of checkmate bounds and draws
+            if ((maxEval <= alpha || maxEval >= beta) && maxEval > -CHECKMATE_SCORE && maxEval < CHECKMATE_SCORE) { //fail low or high, ignore out of checkmate bounds and draws
                 Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
                 if (maxEval <= alpha) alpha -= aspiration;
                 else beta += aspiration;
@@ -111,12 +113,15 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         return (bestMove, entry.score);
     }
     if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
-        return (bestMove, color * -77777777777);
+        return (bestMove, color * -OUT_OF_TIME_SCORE);
     }
-    if (depthLeft == 0 || board.IsInCheckmate() || board.IsInsufficientMaterial() || 
+    if (board.IsInCheckmate() || board.IsInsufficientMaterial() || 
                 board.FiftyMoveCounter >= 100)
     {
         return (bestMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+    }
+    if (depthLeft == 0) {
+        return (bestMove, Quiesce(board, alpha, beta, depthSoFar, rootIsWhite, timer, color));
     }
     Span<Move> legalMoves = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref legalMoves, false);
@@ -172,7 +177,7 @@ public int GetPstVal(int psq) {
                     return -1;
                 }
         if (board.IsInCheckmate()) {
-            (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= 99999999 - depthSoFar;
+            (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= CHECKMATE_SCORE - depthSoFar;
 
             return rootIsWhite ? whiteScore - blackScore : blackScore - whiteScore;
 
@@ -204,4 +209,64 @@ public int GetPstVal(int psq) {
         return rootIsWhite ? overallScore : -overallScore;
 
     }
+
+//TODO: IMPLEMENT QUIESCENCE SEARCH
+
+/*
+int Quiesce( int alpha, int beta ) {
+    int stand_pat = Evaluate();
+    if( stand_pat >= beta )
+        return beta;
+    if( alpha < stand_pat )
+        alpha = stand_pat;
+
+    until( every_capture_has_been_examined )  {
+        MakeCapture();
+        score = -Quiesce( -beta, -alpha );
+        TakeBackMove();
+
+        if( score >= beta )
+            return beta;
+        if( score > alpha )
+           alpha = score;
+    }
+    return alpha;
+}
+
+*/
+
+public double Quiesce(Board board, double alpha, double beta, int depthSoFar, bool rootIsWhite, Timer timer, int color) {
+
+    if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) {
+        return -OUT_OF_TIME_SCORE;
+    }
+    int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
+
+    if (stand_pat >= beta) {
+        return beta;
+    }
+    if (alpha < stand_pat) {
+        alpha = stand_pat;
+    }
+
+    Span<Move> legalMoves = stackalloc Move[256];
+    board.GetLegalMovesNonAlloc(ref legalMoves, true);
+    int i = 0;
+    while(i < legalMoves.Length) {
+        Move move = legalMoves[i];
+        board.MakeMove(move);
+        double score = -Quiesce(board, -beta, -alpha, depthSoFar + 1, rootIsWhite, timer, -color);
+        board.UndoMove(move);
+        if (score >= beta) {
+            return beta;
+        }
+        if (score > alpha) {
+            alpha = score;
+        }
+        i++;
+    }
+    return alpha;
+
+    }
+
 }
