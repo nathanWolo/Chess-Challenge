@@ -210,9 +210,10 @@ public int GetPstVal(int psq) {
 
     }
 
-//TODO: IMPLEMENT QUIESCENCE SEARCH
 
 /*
+Wikipedia Qsearch pseudocode: 
+
 int Quiesce( int alpha, int beta ) {
     int stand_pat = Evaluate();
     if( stand_pat >= beta )
@@ -251,6 +252,17 @@ public double Quiesce(Board board, double alpha, double beta, int depthSoFar, bo
 
     Span<Move> legalMoves = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref legalMoves, true);
+    Span<int> scores = stackalloc int[legalMoves.Length];
+    for (int j = 0; j < legalMoves.Length; j++) {
+        if (legalMoves[j].IsCapture) {
+            scores[j] = (int)legalMoves[j].MovePieceType - 10*(int)legalMoves[j].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
+        }
+        else {
+            scores[j] = 0;
+        }
+
+        }
+    MemoryExtensions.Sort(scores, legalMoves);
     int i = 0;
     while(i < legalMoves.Length) {
         Move move = legalMoves[i];

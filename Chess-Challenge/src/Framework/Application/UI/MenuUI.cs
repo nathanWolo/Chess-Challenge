@@ -45,8 +45,8 @@ namespace ChessChallenge.Application
             if (NextButtonInRow("vs PackedEvalV3", ref buttonPos, spacing, buttonSize)) {
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyPackedEvalV3);
             }
-            if (NextButtonInRow("vs QsearchV1", ref buttonPos, spacing, buttonSize)) {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyQsearchV1);
+            if (NextButtonInRow("vs QsearchV2", ref buttonPos, spacing, buttonSize)) {
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyQsearchV2);
             }
             if (NextButtonInRow("vs Benchmark1", ref buttonPos, spacing, buttonSize)) {
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.Benchmark1);
