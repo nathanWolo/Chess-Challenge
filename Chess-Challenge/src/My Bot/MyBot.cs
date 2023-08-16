@@ -12,7 +12,8 @@ public class MyBot : IChessBot
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
-    const int entries = 128 * 1024^2 / 28; //cheating for lichess, revert to 128 * 1024^2 / 28 for local testing
+    const int entries = 128 * 1024^2 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
+    //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
     TTEntry[] tt = new TTEntry[entries];
 
     public int positionsEvaluated = 0;
@@ -20,10 +21,15 @@ public class MyBot : IChessBot
     public int OUT_OF_TIME_SCORE = 77777;
     public int CHECKMATE_SCORE = 9999999;
 
+    /*
+    PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
+    Good for now - TODO: run our own tuning or perhaps use a neural network
+    Maybe genetic algorithm to tune the piece tables?
+    */
 
-    int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
-    int[] piecePhase = {0, 0, 1, 1, 2, 4, 0};
-    ulong[] psts = {657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 
+    readonly int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
+    readonly int[] piecePhase = {0, 0, 1, 1, 2, 4, 0};
+    readonly ulong[] psts = {657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 
     366006824779723922, 366006826859316500, 786039115310605588, 421220596516513823, 366011295806342421, 366006826859316436, 
     366006896669578452, 162218943720801556, 440575073001255824, 657087419459913430, 402634039558223453, 347425219986941203, 365698755348489557, 
     311382605788951956, 147850316371514514, 329107007234708689, 402598430990222677, 402611905376114006, 329415149680141460, 257053881053295759, 291134268204721362, 
@@ -45,36 +51,34 @@ public class MyBot : IChessBot
         double aspiration = 50;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
-            (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: depthLeft, 
+            (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: ++depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
-            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms\n", 
-                bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn );
+            // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
+            //     bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
             //aspiration window
             if ((maxEval <= alpha || maxEval >= beta) && maxEval > -CHECKMATE_SCORE && maxEval < CHECKMATE_SCORE) { //fail low or high, ignore out of checkmate bounds and draws
-                Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
+                // Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
                 if (maxEval <= alpha) alpha -= aspiration;
                 else beta += aspiration;
-                // alpha -= aspiration;
-                // beta += aspiration;
                 aspiration *= 2;
             }
             else {
+                //reset aspiration window
                 alpha = maxEval - aspiration;
                 beta = maxEval + aspiration;
-                Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
-                depthLeft++;
                 aspiration = 50;
                 bestMove = bestMoveTemp;
             }
+            // Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
             
         }
     positionsEvaluated = 0;
     if (bestMove == Move.NullMove) {
-        Console.WriteLine("NO LEGAL MOVES");
+        // Console.WriteLine("NO LEGAL MOVES");
         return board.GetLegalMoves()[0];
     }
     return bestMove;
@@ -109,7 +113,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
 
     //     if α ≥ β then
     //         return ttEntry.value
-
+        positionsEvaluated++;
         return (bestMove, entry.score);
     }
     if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
@@ -129,19 +133,21 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         return (bestMove, color * -1);
     }
     Span<int> scores = stackalloc int[legalMoves.Length];
+    //lower score -> search first
     for (int i = 0; i < legalMoves.Length; i++) {
-        if (legalMoves[i] == prevBestMove) {
-            scores[i] = -999;
-        }
-        else if (legalMoves[i].IsCapture) {
-            scores[i] = (int)legalMoves[i].MovePieceType - 10*(int)legalMoves[i].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
-        }
-        else {
-            scores[i] = 0;
-        }
-
+        /*
+        Move ordering hierarchy:
+        1. TT move
+        2. captures (MVV/LVA)
+        3. promotions
+        4. Other
+        */
+        scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999 :
+            legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 10 * (int)legalMoves[i].CapturePieceType :
+            legalMoves[i].IsPromotion ? -2 : 0;
         }
     MemoryExtensions.Sort(scores, legalMoves);
+
     double maxEval = double.NegativeInfinity;
     double origAlpha = alpha;
     for (int i =0; i < legalMoves.Length; i++) {
@@ -160,14 +166,16 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
             break;
         }
     }
+    //important to know if this is an exact score or just a lower/upper bound
     int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
-        // Push to TT
+    // Push to TT
     tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
     
     return (bestMove, maxEval);
 }
 public int GetPstVal(int psq) {
+        //black magic bit sorcery
         return (int)(((psts[psq / 10] >> (6 * (psq % 10))) & 63) - 20) * 8;
     }
  public int EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
@@ -241,6 +249,13 @@ public double Quiesce(Board board, double alpha, double beta, int depthSoFar, bo
     if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) {
         return -OUT_OF_TIME_SCORE;
     }
+    ulong key = board.ZobristKey;
+    TTEntry entry = tt[key % entries];
+
+    if(entry.key == key && entry.bound == 3) {
+        positionsEvaluated++;
+        return entry.score;
+        }
     int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
 
     if (stand_pat >= beta) {
