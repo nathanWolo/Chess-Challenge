@@ -15,10 +15,29 @@ namespace ChessChallenge.Application
 
         public static void Main(string[] args)
         {
-        if (args.Length > 1 && args[0] == "uci"){
-            StartUCI(args);
+if(args.Length == 1 && args[0].Contains("cutechess"))
+    {
+        string argstr = args[0].Substring(args[0].IndexOf("uci"));
+        string[] ccArgs = argstr.Split(" ");
+        if(ccArgs.Length == 2 && ccArgs[0] == "uci")
+        {
+            Console.WriteLine("Starting up in UCI mode...");
+            StartUCI(ccArgs);
             return;
-            }
+        }
+        else
+        {
+            Console.WriteLine("Improper CuteChess arg format; should be 'cutechess uci <botname>'");
+            return;
+        }
+    }
+    if (args.Length > 1 && args[0] == "uci")
+    {
+        Console.WriteLine("Starting up in UCI mode...");
+        StartUCI(args);
+        return;
+    }
+    Console.WriteLine("Starting up in GUI mode...");
             Vector2 loadedWindowSize = GetSavedWindowSize();
             int screenWidth = (int)loadedWindowSize.X;
             int screenHeight = (int)loadedWindowSize.Y;

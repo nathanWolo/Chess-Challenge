@@ -146,6 +146,25 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
     {
         PlayerType.MyBot => new MyBot(),
         PlayerType.EvilBot => new EvilBot(),
+        PlayerType.MyQsearchV1 => new MyQsearchV1(),
+        PlayerType.MyQsearchV2 => new MyQsearchV2(),
+        PlayerType.MyQsearchV3 => new MyQsearchV3(),
+        PlayerType.MyIterDeepV1 => new MyIterDeepV1(),
+        PlayerType.MyIterDeepPSEV1 => new MyIterDeepPSEV1(),
+        PlayerType.MyIterDeepPSEV2 => new MyIterDeepPSEV2(),
+        PlayerType.MyTTV1 => new MyTTV1(),
+        PlayerType.MyAspirationV1 => new MyAspirationV1(),
+        PlayerType.MyAspirationV2 => new MyAspirationV2(),
+        PlayerType.MyAspirationV3 => new MyAspirationV3(),
+        PlayerType.MyAspirationV4 => new MyAspirationV4(),
+        PlayerType.MyPackedEvalV1 => new MyPackedEvalV1(),
+        PlayerType.MyPackedEvalV2 => new MyPackedEvalV2(),
+        PlayerType.MyPackedEvalV3 => new MyPackedEvalV3(),
+        PlayerType.MyABMinimax => new MyABMinimax(),
+        PlayerType.MyABNegamax => new MyABNegamax(),
+        PlayerType.MyABNegamaxV2 => new MyABNegamaxV2(),
+        PlayerType.Benchmark1 => new Benchmark1(),
+        PlayerType.Benchmark2 => new Benchmark2(),
         // If you have other bot types, you can add them here as well
         _ => null
     };

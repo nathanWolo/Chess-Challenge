@@ -1,0 +1,1 @@
+cutechess-cli -engine name="MyBot" cmd="./Chess-Challenge" arg="cutechess uci MyBot" -engine name="nm1" cmd="./Chess-Challenge" arg="cutechess uci Benchmark1" -each proto=uci tc=10+0.1 -concurrency 12 -maxmoves 100 -games 2 -rounds 500 -ratinginterval 5 -openings file=book.pgn order=random -pgnout games.pgn -sprt elo0=0 elo1=5 alpha=0.05 beta=0.05
