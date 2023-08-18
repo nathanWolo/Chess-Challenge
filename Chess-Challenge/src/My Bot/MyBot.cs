@@ -89,10 +89,10 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
                                 bool rootIsWhite, Timer timer)
 {
     bool root = depthSoFar == 0;
-    if(!root && board.IsRepeatedPosition()) {
-            return (Move.NullMove, color * -1);
-    }
     Move bestMove = Move.NullMove;
+    if(!root && board.IsRepeatedPosition()) {
+            return (bestMove, 0);
+    }
     ulong key = board.ZobristKey;
     TTEntry entry = tt[key % entries];
 
@@ -114,7 +114,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     //     if α ≥ β then
     //         return ttEntry.value
         positionsEvaluated++;
-        return (bestMove, entry.score);
+        return (entry.move, entry.score);
     }
     if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
         return (bestMove, color * -OUT_OF_TIME_SCORE);
@@ -151,6 +151,17 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     // }
     Span<Move> legalMoves = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref legalMoves, false);
+
+        // int whiteScore = 0, blackScore = 0;
+        // if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
+        //             return -1;
+        //         }
+        // if (board.IsInCheckmate()) {
+        //     (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= CHECKMATE_SCORE - depthSoFar;
+
+        //     return rootIsWhite ? whiteScore - blackScore : blackScore - whiteScore;
+
+        // }
     if (legalMoves.Length  == 0) { //stalemate detected
         return (bestMove, color * -1);
     }
