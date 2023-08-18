@@ -53,7 +53,7 @@ public class MyBot : IChessBot
             //iterative deepening
             (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: ++depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
-                                                rootIsWhite: board.IsWhiteToMove, prevBestMove: bestMove, timer: timer);
+                                                rootIsWhite: board.IsWhiteToMove, timer: timer);
             // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
             //     bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
@@ -86,7 +86,7 @@ public class MyBot : IChessBot
 
 
 public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
-                                bool rootIsWhite, Move prevBestMove, Timer timer)
+                                bool rootIsWhite, Timer timer)
 {
     bool root = depthSoFar == 0;
     if(!root && board.IsRepeatedPosition()) {
@@ -127,6 +127,28 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
     if (depthLeft == 0) {
         return (bestMove, Quiesce(board, alpha, beta, depthSoFar, rootIsWhite, timer, color));
     }
+        //reverse futility pruning
+
+    /*
+    Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+    Pseudocode from talkchess.com:
+
+    	if &#40;depth == 1 &&
+		Eval&#40;) - VALUE_BISHOP > beta&#41;
+		return beta;
+
+	if &#40;depth == 2 &&
+	        Eval&#40;) - VALUE_ROOK > beta&#41;
+		return beta;
+
+	if &#40;depth == 3 &&
+		Eval&#40;) - VALUE_QUEEN > beta&#41;
+		depth--;
+    */
+    // int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
+    // if (stand_pat - 200 * depthLeft >= beta) { //TODO: tune this constant
+    //     return (bestMove, stand_pat - 200 * depthLeft);
+    // }
     Span<Move> legalMoves = stackalloc Move[256];
     board.GetLegalMovesNonAlloc(ref legalMoves, false);
     if (legalMoves.Length  == 0) { //stalemate detected
@@ -154,7 +176,7 @@ public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int co
         Move move = legalMoves[i];
         board.MakeMove(move);
         double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
-                             -color, -beta, -alpha,  rootIsWhite, Move.NullMove, timer).Item2;
+                             -color, -beta, -alpha,  rootIsWhite, timer).Item2;
         board.UndoMove(move);
         if (eval > maxEval)
         {
