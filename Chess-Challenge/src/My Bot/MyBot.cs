@@ -54,8 +54,8 @@ public class MyBot : IChessBot
             (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: ++depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, timer: timer);
-            // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
-            //     bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
+            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
+                bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
@@ -86,9 +86,9 @@ public class MyBot : IChessBot
     {
         bool root = depthSoFar == 0;
         Move bestMove = Move.NullMove;
-        if(!root && board.IsRepeatedPosition()) {
-                return (bestMove, 0);
-        }
+        if (!root && (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100)) {
+                        return (bestMove, 0);
+                    }
         ulong key = board.ZobristKey;
         TTEntry entry = tt[key % entries];
 
@@ -115,51 +115,27 @@ public class MyBot : IChessBot
         if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
             return (bestMove, color * -OUT_OF_TIME_SCORE);
         }
-        if (board.IsInCheckmate() || board.IsInsufficientMaterial() || 
-                    board.FiftyMoveCounter >= 100)
-        {
-            return (bestMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
-        }
+        // if (board.IsInCheckmate() || board.IsInsufficientMaterial() || 
+        //             board.FiftyMoveCounter >= 100)
+        // {
+        //     return (bestMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
+        // }
         if (depthLeft == 0) {
             return (bestMove, Quiesce(board, alpha, beta, depthSoFar, rootIsWhite, timer, color));
         }
-            //reverse futility pruning
-
-        /*
-        Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        Pseudocode from talkchess.com:
-
-            if &#40;depth == 1 &&
-            Eval&#40;) - VALUE_BISHOP > beta&#41;
-            return beta;
-
-        if &#40;depth == 2 &&
-                Eval&#40;) - VALUE_ROOK > beta&#41;
-            return beta;
-
-        if &#40;depth == 3 &&
-            Eval&#40;) - VALUE_QUEEN > beta&#41;
-            depth--;
-        */
+        //reverse futility pruning
+        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
         int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
-        if (stand_pat - 200 * depthLeft >= beta) { //TODO: tune this constant
-            return (bestMove, beta);
+        if (Math.Abs(stand_pat) >= (CHECKMATE_SCORE - 100)) {
+            return (bestMove, stand_pat);
+        }
+        if (stand_pat - 150 * depthLeft >= beta) { //TODO: tune this constant
+            return (bestMove, beta); //fail hard, TODO: try fail soft
         }
         Span<Move> legalMoves = stackalloc Move[256];
         board.GetLegalMovesNonAlloc(ref legalMoves, false);
-
-            // int whiteScore = 0, blackScore = 0;
-            // if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
-            //             return -1;
-            //         }
-            // if (board.IsInCheckmate()) {
-            //     (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= CHECKMATE_SCORE - depthSoFar;
-
-            //     return rootIsWhite ? whiteScore - blackScore : blackScore - whiteScore;
-
-            // }
         if (legalMoves.Length  == 0) { //stalemate detected
-            return (bestMove, color * -1);
+            return (bestMove, 0);
         }
         Span<int> scores = stackalloc int[legalMoves.Length];
         //lower score -> search first
@@ -210,9 +186,6 @@ public class MyBot : IChessBot
     public int EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
             positionsEvaluated++;
             int whiteScore = 0, blackScore = 0;
-            if (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100) {
-                        return -1;
-                    }
             if (board.IsInCheckmate()) {
                 (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= CHECKMATE_SCORE - depthSoFar;
 
@@ -298,13 +271,7 @@ public class MyBot : IChessBot
         board.GetLegalMovesNonAlloc(ref legalMoves, true);
         Span<int> scores = stackalloc int[legalMoves.Length];
         for (int j = 0; j < legalMoves.Length; j++) {
-            if (legalMoves[j].IsCapture) {
                 scores[j] = (int)legalMoves[j].MovePieceType - 10*(int)legalMoves[j].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
-            }
-            else {
-                scores[j] = 0;
-            }
-
             }
         MemoryExtensions.Sort(scores, legalMoves);
         int i = 0;
