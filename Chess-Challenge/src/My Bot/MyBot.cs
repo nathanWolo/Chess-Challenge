@@ -20,7 +20,7 @@ public class MyBot : IChessBot
     public int TIME_PER_MOVE = 1000;
     public int OUT_OF_TIME_SCORE = 77777;
     public int CHECKMATE_SCORE = 9999999;
-    public int MAX_DEPTH = 50;
+    public int MAX_DEPTH = 30;
     /*
     PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
     Good for now - TODO: run our own tuning or perhaps use a neural network
@@ -54,8 +54,8 @@ public class MyBot : IChessBot
             (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: ++depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, timer: timer);
-            Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
-                bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
+            // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
+            //     bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
@@ -91,50 +91,36 @@ public class MyBot : IChessBot
                     }
         ulong key = board.ZobristKey;
         TTEntry entry = tt[key % entries];
-
+        double maxEval = double.NegativeInfinity;
         if(!root && entry.key == key && entry.depth >= depthLeft && (
                 entry.bound == 3 // exact score
                     || (entry.bound == 2 && entry.score >= beta )// lower bound, fail high
                     || (entry.bound == 1 && entry.score <= alpha )// upper bound, fail low
             )) {
-    ///TODO: implement bound narrowing (source: wikipedia)
-    ///    ttEntry := transpositionTableLookup(node)
-        // if ttEntry is valid and ttEntry.depth ≥ depth then
-        //     if ttEntry.flag = EXACT then
-        //         return ttEntry.value
-        //     else if ttEntry.flag = LOWERBOUND then
-        //         α := max(α, ttEntry.value)
-        //     else if ttEntry.flag = UPPERBOUND then
-        //         β := min(β, ttEntry.value)
-
-        //     if α ≥ β then
-        //         return ttEntry.value
             positionsEvaluated++;
             return (bestMove, entry.score);
         }
         if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
             return (bestMove, color * -OUT_OF_TIME_SCORE);
         }
-        // if (board.IsInCheckmate() || board.IsInsufficientMaterial() || 
-        //             board.FiftyMoveCounter >= 100)
-        // {
-        //     return (bestMove, color * EvaluateBoard(board, rootIsWhite, depthSoFar));
-        // }
-        if (depthLeft == 0) {
-            return (bestMove, Quiesce(board, alpha, beta, depthSoFar, rootIsWhite, timer, color));
-        }
         //reverse futility pruning
         //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
         int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
+        bool qsearch = depthLeft <= 0;
+        if(qsearch) {
+            maxEval = stand_pat;
+            if(maxEval >= beta) return (bestMove, maxEval);
+            alpha = Math.Max(alpha, maxEval);
+        }
         if (Math.Abs(stand_pat) >= (CHECKMATE_SCORE - 100)) {
             return (bestMove, stand_pat);
         }
-        if (stand_pat - 150 * depthLeft >= beta) { //TODO: tune this constant
+        if (stand_pat - 150 * depthLeft >= beta && !qsearch) { //TODO: tune this constant
             return (bestMove, beta); //fail hard, TODO: try fail soft
         }
         Span<Move> legalMoves = stackalloc Move[256];
-        board.GetLegalMovesNonAlloc(ref legalMoves, false);
-        if (legalMoves.Length  == 0) { //stalemate detected
+        board.GetLegalMovesNonAlloc(ref legalMoves, qsearch);
+        if (legalMoves.Length  == 0 && !qsearch) { //stalemate detected
             return (bestMove, 0);
         }
         Span<int> scores = stackalloc int[legalMoves.Length];
@@ -152,8 +138,6 @@ public class MyBot : IChessBot
                 legalMoves[i].IsPromotion ? -2 : 0;
             }
         MemoryExtensions.Sort(scores, legalMoves);
-
-        double maxEval = double.NegativeInfinity;
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
             Move move = legalMoves[i];
@@ -217,78 +201,6 @@ public class MyBot : IChessBot
             int overallScore = (mg * phase + eg * (24 - phase)) / 24;
 
             return rootIsWhite ? overallScore : -overallScore;
-
-        }
-
-
-    /*
-    Wikipedia Qsearch pseudocode: 
-
-    int Quiesce( int alpha, int beta ) {
-        int stand_pat = Evaluate();
-        if( stand_pat >= beta )
-            return beta;
-        if( alpha < stand_pat )
-            alpha = stand_pat;
-
-        until( every_capture_has_been_examined )  {
-            MakeCapture();
-            score = -Quiesce( -beta, -alpha );
-            TakeBackMove();
-
-            if( score >= beta )
-                return beta;
-            if( score > alpha )
-            alpha = score;
-        }
-        return alpha;
-    }
-
-    */
-
-    public double Quiesce(Board board, double alpha, double beta, int depthSoFar, bool rootIsWhite, Timer timer, int color) {
-
-        if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) {
-            return -OUT_OF_TIME_SCORE;
-        }
-        ulong key = board.ZobristKey;
-        TTEntry entry = tt[key % entries];
-
-        if(entry.key == key && entry.bound == 3) {
-            positionsEvaluated++;
-            return entry.score;
-            }
-        int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
-
-        if (stand_pat >= beta) {
-            return beta;
-        }
-        if (alpha < stand_pat) {
-            alpha = stand_pat;
-        }
-
-        Span<Move> legalMoves = stackalloc Move[256];
-        board.GetLegalMovesNonAlloc(ref legalMoves, true);
-        Span<int> scores = stackalloc int[legalMoves.Length];
-        for (int j = 0; j < legalMoves.Length; j++) {
-                scores[j] = (int)legalMoves[j].MovePieceType - 10*(int)legalMoves[j].CapturePieceType; //1 = pawn, 2 = knight, 3 = bishop, 4 = rook, 5 = queen, 6 = king
-            }
-        MemoryExtensions.Sort(scores, legalMoves);
-        int i = 0;
-        while(i < legalMoves.Length) {
-            Move move = legalMoves[i];
-            board.MakeMove(move);
-            double score = -Quiesce(board, -beta, -alpha, depthSoFar + 1, rootIsWhite, timer, -color);
-            board.UndoMove(move);
-            if (score >= beta) {
-                return beta;
-            }
-            if (score > alpha) {
-                alpha = score;
-            }
-            i++;
-        }
-        return alpha;
 
         }
 
