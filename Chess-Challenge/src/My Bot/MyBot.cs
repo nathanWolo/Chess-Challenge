@@ -40,7 +40,7 @@ public class MyBot : IChessBot
     422042614449657239, 384602117564867863, 419505151144195476, 366274972473194070, 329406075454444949, 275354286769374224, 366855645423297932, 329991151972070674, 
     311105941360174354, 256772197720318995, 365993560693875923, 258219435335676691, 383730812414424149, 384601907111998612, 401758895947998613, 420612834953622999, 
     402607438610388375, 329978099633296596, 67159620133902};
-
+    Move bestMoveRoot = Move.NullMove;
     public Move Think(Board board, Timer timer)
     {
         int depthLeft = 1;
@@ -51,11 +51,11 @@ public class MyBot : IChessBot
         double aspiration = 50;
         while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && depthLeft < MAX_DEPTH) {
             //iterative deepening
-            (Move bestMoveTemp, maxEval) = NegaMax(board: board, depthLeft: ++depthLeft, 
+            maxEval = NegaMax(board: board, depthLeft: ++depthLeft, 
                                                 depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
                                                 rootIsWhite: board.IsWhiteToMove, timer: timer);
             // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
-            //     bestMoveTemp, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
+            //     bestMoveRoot, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
                 break;
             }
@@ -70,24 +70,23 @@ public class MyBot : IChessBot
                 //reset aspiration window
                 alpha = maxEval - aspiration;
                 beta = maxEval + aspiration;
-                aspiration = 50;
-                bestMove = bestMoveTemp;
+                aspiration = 50; //SHOULD THIS GET RESET FIRST?? TODO: test
             }
             // Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
             
         }
     positionsEvaluated = 0;
-    return bestMove;
+    return bestMoveRoot;
     }
 
 
-    public (Move, double) NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
+    public double NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
                                 bool rootIsWhite, Timer timer)
     {
         bool root = depthSoFar == 0;
         Move bestMove = Move.NullMove;
         if (!root && (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100)) {
-                        return (bestMove, 0);
+                        return 0;
                     }
         ulong key = board.ZobristKey;
         TTEntry entry = tt[key % entries];
@@ -98,10 +97,10 @@ public class MyBot : IChessBot
                     || (entry.bound == 1 && entry.score <= alpha )// upper bound, fail low
             )) {
             positionsEvaluated++;
-            return (bestMove, entry.score);
+            return entry.score;
         }
         if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
-            return (bestMove, color * -OUT_OF_TIME_SCORE);
+            return color * -OUT_OF_TIME_SCORE;
         }
         //reverse futility pruning
         //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
@@ -109,19 +108,19 @@ public class MyBot : IChessBot
         bool qsearch = depthLeft <= 0;
         if(qsearch) {
             maxEval = stand_pat;
-            if(maxEval >= beta) return (bestMove, maxEval);
+            if(maxEval >= beta) return maxEval;
             alpha = Math.Max(alpha, maxEval);
         }
         if (Math.Abs(stand_pat) >= (CHECKMATE_SCORE - 100)) {
-            return (bestMove, stand_pat);
+            return  stand_pat;
         }
         if (stand_pat - 150 * depthLeft >= beta && !qsearch) { //TODO: tune this constant
-            return (bestMove, beta); //fail hard, TODO: try fail soft
+            return  beta; //fail hard, TODO: try fail soft
         }
         Span<Move> legalMoves = stackalloc Move[256];
         board.GetLegalMovesNonAlloc(ref legalMoves, qsearch);
         if (legalMoves.Length  == 0 && !qsearch) { //stalemate detected
-            return (bestMove, 0);
+            return 0;
         }
         Span<int> scores = stackalloc int[legalMoves.Length];
         //lower score -> search first
@@ -143,17 +142,17 @@ public class MyBot : IChessBot
             Move move = legalMoves[i];
             board.MakeMove(move);
             double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
-                                -color, -beta, -alpha,  rootIsWhite, timer).Item2;
+                                -color, -beta, -alpha,  rootIsWhite, timer);
             board.UndoMove(move);
             if (eval > maxEval)
             {
                 maxEval = eval;
                 bestMove = move;
+                if (root) bestMoveRoot = move;
             }
             alpha = Math.Max(alpha, maxEval);
-            if (alpha >= beta) {
-                break;
-            }
+            if (alpha >= beta)  break;
+            
         }
         //important to know if this is an exact score or just a lower/upper bound
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
@@ -161,7 +160,7 @@ public class MyBot : IChessBot
         // Push to TT
         tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
         
-        return (bestMove, maxEval);
+        return maxEval;
     }
     public int GetPstVal(int psq) {
             //black magic bit sorcery
