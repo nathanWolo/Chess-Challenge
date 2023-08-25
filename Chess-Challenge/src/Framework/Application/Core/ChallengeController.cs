@@ -54,6 +54,7 @@ namespace ChessChallenge.Application
             MyQsearchV10,
             MyQsearchV11,
             MyQsearchV12,
+            Onion4,
             Benchmark1,
             Benchmark2,
         }
@@ -154,6 +155,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
     return type switch
     {
         PlayerType.MyBot => new MyBot(),
+        PlayerType.Onion4 => new Onion4(),
         PlayerType.EvilBot => new EvilBot(),
         PlayerType.MyQsearchV1 => new MyQsearchV1(),
         PlayerType.MyQsearchV2 => new MyQsearchV2(),
@@ -285,6 +287,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
             return type switch
             {
                 PlayerType.MyBot => new ChessPlayer(new MyBot(), type, GameDurationMilliseconds),
+                PlayerType.Onion4 => new ChessPlayer(new Onion4(), type, GameDurationMilliseconds),
                 PlayerType.EvilBot => new ChessPlayer(new EvilBot(), type, GameDurationMilliseconds),
                 PlayerType.MyNaiveMinimax => new ChessPlayer(new MyNaiveMinimax(), type, GameDurationMilliseconds),
                 PlayerType.MyABMinimax => new ChessPlayer(new MyABMinimax(), type, GameDurationMilliseconds),

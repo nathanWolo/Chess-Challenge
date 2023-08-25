@@ -54,7 +54,7 @@ public class MyBot : IChessBot
             if (maxEval <= alpha || maxEval >= beta) { //fail low or high
                 if (maxEval <= alpha) alpha -= aspiration;
                 else beta += aspiration;
-                aspiration *= 2;
+                aspiration *= 1.5;
             }
             else {
                 //reset aspiration window
