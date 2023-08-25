@@ -42,27 +42,26 @@ public class MyBot : IChessBot
     {
         int depthLeft = 1;
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
-        double alpha = double.NegativeInfinity, beta = double.PositiveInfinity;
-        double maxEval;
-        double aspiration = 50;
-        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
+        double alpha = double.NegativeInfinity, beta = double.PositiveInfinity, maxEval = 0;
+        double aspiration = 15;
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && (Math.Abs(maxEval) < (CHECKMATE_SCORE - 100))) {
             //iterative deepening
-            maxEval = NegaMax(board: board, depthLeft: ++depthLeft, 
+            maxEval = NegaMax(board: board, depthLeft: depthLeft, 
                                                 depthSoFar: 0, alpha: alpha, beta: beta,  timer: timer);
             // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
             //     bestMoveRoot, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
             //aspiration window
-            if(Math.Abs(maxEval) > (CHECKMATE_SCORE - 100)) break;
-            if (maxEval <= alpha || maxEval >= beta) { //fail low or high, ignore out of checkmate bounds and draws
+            if (maxEval <= alpha || maxEval >= beta) { //fail low or high
                 if (maxEval <= alpha) alpha -= aspiration;
                 else beta += aspiration;
                 aspiration *= 2;
             }
             else {
                 //reset aspiration window
-                aspiration = 50;
+                aspiration = 15;
                 alpha = maxEval - aspiration;
                 beta = maxEval + aspiration;
+                depthLeft++;
             }
             
         }
@@ -94,18 +93,27 @@ public class MyBot : IChessBot
             positionsEvaluated++;
             return entry.score;
         }
+
+
         //reverse futility pruning
         //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        int stand_pat = EvaluateBoard(board);
+        int standPat = EvaluateBoard(board);
         if(qsearch) {
-            maxEval = stand_pat;
+            maxEval = standPat;
             if(maxEval >= beta) return maxEval;
             alpha = Math.Max(alpha, maxEval);
         }
-        if (stand_pat - 150 * depthLeft >= beta  //TODO: tune this constant
+        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant
             && !qsearch ) {//dont prune in qsearch
             return beta; //fail hard, TODO: try fail soft
         }
+
+        //deep futility pruning
+        //basic idea: It discards the moves that have no potential of raising alpha, which in turn requires some estimate of a potential value of a move. 
+        //This is calculated by adding a futility margin (representing the largest conceivable positional gain) to the evaluation of the current position.
+        bool canPruneMove = depthLeft <= 8 && standPat + depthLeft * 225 <= alpha; //TODO: tune this constant
+
+
         Span<Move> legalMoves = stackalloc Move[256]; //stackalloc is faster than new
         board.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
         if (legalMoves.Length == 0 && !qsearch) {
@@ -133,6 +141,7 @@ public class MyBot : IChessBot
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
             if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) return -CHECKMATE_SCORE;
+            if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move
             Move move = legalMoves[i];
             board.MakeMove(move);
             double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
@@ -157,7 +166,8 @@ public class MyBot : IChessBot
     }
 
 
-
+    //evaluation code shamelessly stolen from JW's example chess engine
+    //TODO: try and improve this eventually
     public int GetPstVal(int psq) {
             //black magic bit sorcery
             return (int)(((psts[psq / 10] >> (6 * (psq % 10))) & 63) - 20) * 8;
