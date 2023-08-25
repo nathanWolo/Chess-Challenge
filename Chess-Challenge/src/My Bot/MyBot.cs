@@ -18,13 +18,11 @@ public class MyBot : IChessBot
 
     public int positionsEvaluated = 0;
     public int TIME_PER_MOVE = 1000;
-    public int OUT_OF_TIME_SCORE = 77777;
     public int CHECKMATE_SCORE = 9999999;
-    public int MAX_DEPTH = 30;
+    Move bestMoveRoot = Move.NullMove;
     /*
     PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
-    Good for now - TODO: run our own tuning or perhaps use a neural network
-    Maybe genetic algorithm to tune the piece tables?
+    Good for now - TODO: run our own tuning on top of this
     */
 
     readonly int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
@@ -40,39 +38,32 @@ public class MyBot : IChessBot
     422042614449657239, 384602117564867863, 419505151144195476, 366274972473194070, 329406075454444949, 275354286769374224, 366855645423297932, 329991151972070674, 
     311105941360174354, 256772197720318995, 365993560693875923, 258219435335676691, 383730812414424149, 384601907111998612, 401758895947998613, 420612834953622999, 
     402607438610388375, 329978099633296596, 67159620133902};
-    Move bestMoveRoot = Move.NullMove;
     public Move Think(Board board, Timer timer)
     {
         int depthLeft = 1;
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         double alpha = double.NegativeInfinity, beta = double.PositiveInfinity;
-        Move bestMove = Move.NullMove;
         double maxEval;
         double aspiration = 50;
-        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && depthLeft < MAX_DEPTH) {
+        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE) {
             //iterative deepening
             maxEval = NegaMax(board: board, depthLeft: ++depthLeft, 
-                                                depthSoFar: 0, color: 1, alpha: alpha, beta: beta, 
-                                                rootIsWhite: board.IsWhiteToMove, timer: timer);
+                                                depthSoFar: 0, alpha: alpha, beta: beta,  timer: timer);
             // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
             //     bestMoveRoot, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
-            if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
-                break;
-            }
             //aspiration window
+            if(Math.Abs(maxEval) > (CHECKMATE_SCORE - 100)) break;
             if (maxEval <= alpha || maxEval >= beta) { //fail low or high, ignore out of checkmate bounds and draws
-                // Console.WriteLine("Search failed due to narrow aspiration window, doubling window and trying again");
                 if (maxEval <= alpha) alpha -= aspiration;
                 else beta += aspiration;
                 aspiration *= 2;
             }
             else {
                 //reset aspiration window
+                aspiration = 50;
                 alpha = maxEval - aspiration;
                 beta = maxEval + aspiration;
-                aspiration = 50; //SHOULD THIS GET RESET FIRST?? TODO: test
             }
-            // Console.WriteLine("Aspiration window: [{0}, {1}]", alpha, beta);
             
         }
     positionsEvaluated = 0;
@@ -80,48 +71,48 @@ public class MyBot : IChessBot
     }
 
 
-    public double NegaMax(Board board, int depthLeft, int depthSoFar, int color, double alpha, double beta, 
-                                bool rootIsWhite, Timer timer)
+    public double NegaMax(Board board, int depthLeft, int depthSoFar, double alpha, double beta, Timer timer)
     {
-        bool root = depthSoFar == 0;
+        bool inCheck = board.IsInCheck(), root = depthSoFar == 0;
+        if(inCheck) depthLeft++; //extend search depth if in check
+
+        bool qsearch = depthLeft <= 0;
         Move bestMove = Move.NullMove;
-        if (!root && (board.IsInsufficientMaterial() || board.IsRepeatedPosition() || board.FiftyMoveCounter >= 100)) {
-                        return 0;
-                    }
+        if (!root && (board.IsInsufficientMaterial() 
+                        || board.IsRepeatedPosition() 
+                        || board.FiftyMoveCounter >= 100)) {
+            return 0;
+        }
         ulong key = board.ZobristKey;
         TTEntry entry = tt[key % entries];
         double maxEval = double.NegativeInfinity;
-        if(!root && entry.key == key && entry.depth >= depthLeft && (
-                entry.bound == 3 // exact score
+        if(!root && entry.key == key //verify that the entry is for this position (can very rarely be wrong)
+                && entry.depth >= depthLeft //verify that the entry is for a search of at least this depth
+                && (entry.bound == 3 // exact score
                     || (entry.bound == 2 && entry.score >= beta )// lower bound, fail high
-                    || (entry.bound == 1 && entry.score <= alpha )// upper bound, fail low
-            )) {
+                    || (entry.bound == 1 && entry.score <= alpha ))) {// upper bound, fail low
             positionsEvaluated++;
             return entry.score;
         }
-        if (timer.MillisecondsElapsedThisTurn >= TIME_PER_MOVE) {
-            return color * -OUT_OF_TIME_SCORE;
-        }
         //reverse futility pruning
         //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        int stand_pat = color * EvaluateBoard(board, rootIsWhite, depthSoFar);
-        bool qsearch = depthLeft <= 0;
+        int stand_pat = EvaluateBoard(board);
         if(qsearch) {
             maxEval = stand_pat;
             if(maxEval >= beta) return maxEval;
             alpha = Math.Max(alpha, maxEval);
         }
-        if (Math.Abs(stand_pat) >= (CHECKMATE_SCORE - 100)) {
-            return  stand_pat;
+        if (stand_pat - 150 * depthLeft >= beta  //TODO: tune this constant
+            && !qsearch ) {//dont prune in qsearch
+            return beta; //fail hard, TODO: try fail soft
         }
-        if (stand_pat - 150 * depthLeft >= beta && !qsearch) { //TODO: tune this constant
-            return  beta; //fail hard, TODO: try fail soft
-        }
-        Span<Move> legalMoves = stackalloc Move[256];
-        board.GetLegalMovesNonAlloc(ref legalMoves, qsearch);
-        if (legalMoves.Length  == 0 && !qsearch) { //stalemate detected
-            return 0;
-        }
+        Span<Move> legalMoves = stackalloc Move[256]; //stackalloc is faster than new
+        board.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
+        if (legalMoves.Length == 0 && !qsearch) {
+                if (inCheck) return  -CHECKMATE_SCORE + depthSoFar;
+                return 0;
+            }
+
         Span<int> scores = stackalloc int[legalMoves.Length];
         //lower score -> search first
         for (int i = 0; i < legalMoves.Length; i++) {
@@ -132,27 +123,29 @@ public class MyBot : IChessBot
             3. promotions
             4. Other
             */
-            scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999 :
-                legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 10 * (int)legalMoves[i].CapturePieceType :
-                legalMoves[i].IsPromotion ? -2 : 0;
+            scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999 : //TT move
+                legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 10 * (int)legalMoves[i].CapturePieceType : //MVV/LVA
+                legalMoves[i].IsPromotion ? -2 : 0; //promotions
             }
         MemoryExtensions.Sort(scores, legalMoves);
+
+
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
+            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) return -CHECKMATE_SCORE;
             Move move = legalMoves[i];
             board.MakeMove(move);
             double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
-                                -color, -beta, -alpha,  rootIsWhite, timer);
+                                -beta, -alpha, timer);
             board.UndoMove(move);
             if (eval > maxEval)
             {
                 maxEval = eval;
                 bestMove = move;
-                if (root) bestMoveRoot = move;
+                if (root && maxEval < beta && maxEval > origAlpha) bestMoveRoot = move;
             }
             alpha = Math.Max(alpha, maxEval);
-            if (alpha >= beta)  break;
-            
+            if (alpha >= beta) break;
         }
         //important to know if this is an exact score or just a lower/upper bound
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
@@ -162,19 +155,17 @@ public class MyBot : IChessBot
         
         return maxEval;
     }
+
+
+
     public int GetPstVal(int psq) {
             //black magic bit sorcery
             return (int)(((psts[psq / 10] >> (6 * (psq % 10))) & 63) - 20) * 8;
         }
-    public int EvaluateBoard(Board board, bool rootIsWhite, int depthSoFar) {
+
+
+    public int EvaluateBoard(Board board) {
             positionsEvaluated++;
-            int whiteScore = 0, blackScore = 0;
-            if (board.IsInCheckmate()) {
-                (board.IsWhiteToMove ? ref whiteScore : ref blackScore) -= CHECKMATE_SCORE - depthSoFar;
-
-                return rootIsWhite ? whiteScore - blackScore : blackScore - whiteScore;
-
-            }
             
             int mg = 0, eg = 0, phase = 0;
 
@@ -193,13 +184,11 @@ public class MyBot : IChessBot
                 mg = -mg;
                 eg = -eg;
             }
-
             // mg represents whites midgame score - blacks midgame score
             // eg represents whites endgame score - blacks endgame score
 
             int overallScore = (mg * phase + eg * (24 - phase)) / 24;
-
-            return rootIsWhite ? overallScore : -overallScore;
+            return board.IsWhiteToMove ? overallScore : -overallScore;
 
         }
 

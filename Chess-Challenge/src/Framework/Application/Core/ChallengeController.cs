@@ -52,6 +52,7 @@ namespace ChessChallenge.Application
             MyQsearchV8,
             MyQsearchV9,
             MyQsearchV10,
+            MyQsearchV11,
             Benchmark1,
             Benchmark2,
         }
@@ -163,6 +164,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
         PlayerType.MyQsearchV8 => new MyQsearchV8(),
         PlayerType.MyQsearchV9 => new MyQsearchV9(),
         PlayerType.MyQsearchV10 => new MyQsearchV10(),
+        PlayerType.MyQsearchV11 => new MyQsearchV11(),
         PlayerType.MyNaiveMinimax => new MyNaiveMinimax(),
         PlayerType.MyIterDeepV1 => new MyIterDeepV1(),
         PlayerType.MyIterDeepPSEV1 => new MyIterDeepPSEV1(),
@@ -307,6 +309,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.MyQsearchV8 => new ChessPlayer(new MyQsearchV8(), type, GameDurationMilliseconds),
                 PlayerType.MyQsearchV9 => new ChessPlayer(new MyQsearchV9(), type, GameDurationMilliseconds),
                 PlayerType.MyQsearchV10 => new ChessPlayer(new MyQsearchV10(), type, GameDurationMilliseconds),
+                PlayerType.MyQsearchV11 => new ChessPlayer(new MyQsearchV11(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark1 => new ChessPlayer(new Benchmark1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark2 => new ChessPlayer(new Benchmark2(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)
