@@ -1,14 +1,13 @@
 ﻿using ChessChallenge.API;
 using System;
-
+using static System.Math;
 public class MyBot : IChessBot
 {
     struct TTEntry {
-        public ulong key;
-        public Move move;
-        public int depth, bound;
-        public double score;
-        public TTEntry(ulong _key, Move _move, int _depth, double _score, int _bound) {
+        public ulong key; //64 bits
+        public Move move; //
+        public int depth, bound, score; //32 bits each
+        public TTEntry(ulong _key, Move _move, int _depth, int _score, int _bound) {
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
@@ -16,10 +15,12 @@ public class MyBot : IChessBot
     //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
     TTEntry[] tt = new TTEntry[entries];
 
-    public int positionsEvaluated = 0;
-    public int TIME_PER_MOVE = 1000;
+    int[,,] historyTable = new int[2, 7, 64];
+
+    // public int positionsEvaluated = 0;
+    public int TIME_PER_MOVE;
     public int CHECKMATE_SCORE = 9999999;
-    Move bestMoveRoot = Move.NullMove;
+    Move bestMoveRoot;
     /*
     PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
     Good for now - TODO: run our own tuning on top of this
@@ -40,37 +41,30 @@ public class MyBot : IChessBot
     402607438610388375, 329978099633296596, 67159620133902};
     public Move Think(Board board, Timer timer)
     {
-        int depthLeft = 1;
+        
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
-        double alpha = double.NegativeInfinity, beta = double.PositiveInfinity, maxEval = 0;
-        double aspiration = 15;
-        while (timer.MillisecondsElapsedThisTurn < TIME_PER_MOVE && (Math.Abs(maxEval) < (CHECKMATE_SCORE - 100))) {
+        Array.Clear(historyTable, 0, historyTable.Length); //reset history table
+        for (int depthLeft = 1, alpha = -CHECKMATE_SCORE, beta = CHECKMATE_SCORE, maxEval ;;) {
             //iterative deepening
-            maxEval = NegaMax(board: board, depthLeft: depthLeft, 
-                                                depthSoFar: 0, alpha: alpha, beta: beta,  timer: timer);
-            // Console.Write("best move: {0}, value: {1}, depth: {2}, positions evaluated: {3}, in {4} ms, NPMS: {5}\n", 
-            //     bestMoveRoot, maxEval, depthLeft, positionsEvaluated,timer.MillisecondsElapsedThisTurn, positionsEvaluated / (timer.MillisecondsElapsedThisTurn + 1));
+            maxEval = NegaMax(board, depthLeft, 0, alpha, beta, timer);
+            // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+            if (Abs(maxEval) > CHECKMATE_SCORE - 100 || depthLeft > 30) return bestMoveRoot; //ran out of time
             //aspiration window
             if (maxEval <= alpha || maxEval >= beta) { //fail low or high
-                if (maxEval <= alpha) alpha -= aspiration;
-                else beta += aspiration;
-                aspiration *= 1.5;
+                if (maxEval <= alpha) alpha -= 15;
+                else beta += 15;
             }
             else {
                 //reset aspiration window
-                aspiration = 15;
-                alpha = maxEval - aspiration;
-                beta = maxEval + aspiration;
+                alpha = maxEval - 15;
+                beta = maxEval + 15;
                 depthLeft++;
             }
-            
         }
-    positionsEvaluated = 0;
-    return bestMoveRoot;
     }
 
 
-    public double NegaMax(Board board, int depthLeft, int depthSoFar, double alpha, double beta, Timer timer)
+    public int NegaMax(Board board, int depthLeft, int depthSoFar, int alpha, int beta, Timer timer)
     {
         bool inCheck = board.IsInCheck(), root = depthSoFar == 0;
         if(inCheck) depthLeft++; //extend search depth if in check
@@ -84,13 +78,13 @@ public class MyBot : IChessBot
         }
         ulong key = board.ZobristKey;
         TTEntry entry = tt[key % entries];
-        double maxEval = double.NegativeInfinity;
+        int maxEval = -CHECKMATE_SCORE;
         if(!root && entry.key == key //verify that the entry is for this position (can very rarely be wrong)
                 && entry.depth >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entry.bound == 3 // exact score
                     || (entry.bound == 2 && entry.score >= beta )// lower bound, fail high
                     || (entry.bound == 1 && entry.score <= alpha ))) {// upper bound, fail low
-            positionsEvaluated++;
+            // positionsEvaluated++;
             return entry.score;
         }
 
@@ -101,9 +95,10 @@ public class MyBot : IChessBot
         if(qsearch) {
             maxEval = standPat;
             if(maxEval >= beta) return maxEval;
-            alpha = Math.Max(alpha, maxEval);
+            alpha = Max(alpha, maxEval);
         }
-        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant
+
+        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant. Note, started at 150. Binary search [75, 150] to find best value
             && !qsearch ) {//dont prune in qsearch
             return beta; //fail hard, TODO: try fail soft
         }
@@ -128,33 +123,45 @@ public class MyBot : IChessBot
             Move ordering hierarchy:
             1. TT move
             2. captures (MVV/LVA)
-            3. promotions
-            4. Other
+            3. history heuristic
             */
-            scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999 : //TT move
-                legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 10 * (int)legalMoves[i].CapturePieceType : //MVV/LVA
-                legalMoves[i].IsPromotion ? -2 : 0; //promotions
-            }
+            scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999999 : //TT move
+                legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 1000 * (int)legalMoves[i].CapturePieceType : //MVV/LVA
+                historyTable[depthSoFar & 1, (int)legalMoves[i].MovePieceType, legalMoves[i].TargetSquare.Index]; //history heuristic
+        }
         MemoryExtensions.Sort(scores, legalMoves);
 
 
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
-            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) return -CHECKMATE_SCORE;
-            if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move
+            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) return -CHECKMATE_SCORE; //ran out of time
+            
+            if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
+            
             Move move = legalMoves[i];
             board.MakeMove(move);
-            double eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, 
-                                -beta, -alpha, timer);
+            int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer);
             board.UndoMove(move);
+
             if (eval > maxEval)
             {
                 maxEval = eval;
                 bestMove = move;
-                if (root && maxEval < beta && maxEval > origAlpha) bestMoveRoot = move;
+                if (root && maxEval < beta && maxEval > origAlpha) 
+                    bestMoveRoot = move; //is verifying the bounds here actually needed?
             }
-            alpha = Math.Max(alpha, maxEval);
-            if (alpha >= beta) break;
+
+            alpha = Max(alpha, maxEval);
+
+            if (alpha >= beta){
+                //history heuristic
+
+                if (!move.IsCapture) 
+                    //dont update history for captures
+                    historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
+                
+                break;
+            }
         }
         //important to know if this is an exact score or just a lower/upper bound
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
@@ -175,7 +182,7 @@ public class MyBot : IChessBot
 
 
     public int EvaluateBoard(Board board) {
-            positionsEvaluated++;
+            // positionsEvaluated++;
             
             int mg = 0, eg = 0, phase = 0;
 
