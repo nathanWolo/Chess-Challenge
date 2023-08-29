@@ -59,8 +59,10 @@ namespace ChessChallenge.Application
             Onion42,
             Onion43,
             Onion44,
+            Onion45,
             Benchmark1,
             Benchmark2,
+            TyrantBot,
         }
 
         // Game state
@@ -164,6 +166,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
         PlayerType.Onion42 => new Onion42(),
         PlayerType.Onion43 => new Onion43(),
         PlayerType.Onion44 => new Onion44(),
+        PlayerType.Onion45 => new Onion45(),
         PlayerType.EvilBot => new EvilBot(),
         PlayerType.MyQsearchV1 => new MyQsearchV1(),
         PlayerType.MyQsearchV2 => new MyQsearchV2(),
@@ -194,6 +197,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
         PlayerType.MyABNegamaxV2 => new MyABNegamaxV2(),
         PlayerType.Benchmark1 => new Benchmark1(),
         PlayerType.Benchmark2 => new Benchmark2(),
+        PlayerType.TyrantBot => new TyrantBot(),
         // If you have other bot types, you can add them here as well
         _ => null
     };
@@ -300,6 +304,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.Onion42 => new ChessPlayer(new Onion42(), type, GameDurationMilliseconds),
                 PlayerType.Onion43 => new ChessPlayer(new Onion43(), type, GameDurationMilliseconds),
                 PlayerType.Onion44 => new ChessPlayer(new Onion44(), type, GameDurationMilliseconds),
+                PlayerType.Onion45 => new ChessPlayer(new Onion45(), type, GameDurationMilliseconds),
                 PlayerType.EvilBot => new ChessPlayer(new EvilBot(), type, GameDurationMilliseconds),
                 PlayerType.MyNaiveMinimax => new ChessPlayer(new MyNaiveMinimax(), type, GameDurationMilliseconds),
                 PlayerType.MyABMinimax => new ChessPlayer(new MyABMinimax(), type, GameDurationMilliseconds),
@@ -330,6 +335,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.MyQsearchV12 => new ChessPlayer(new MyQsearchV12(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark1 => new ChessPlayer(new Benchmark1(), type, GameDurationMilliseconds),
                 PlayerType.Benchmark2 => new ChessPlayer(new Benchmark2(), type, GameDurationMilliseconds),
+                PlayerType.TyrantBot => new ChessPlayer(new TyrantBot(), type, GameDurationMilliseconds),
                 _ => new ChessPlayer(new HumanPlayer(boardUI), type)
             };
         }

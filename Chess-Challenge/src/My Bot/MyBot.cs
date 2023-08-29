@@ -1,6 +1,7 @@
 ﻿using ChessChallenge.API;
 using System;
 using static System.Math;
+using System.Linq;
 public class MyBot : IChessBot
 {
     struct TTEntry {
@@ -18,26 +19,31 @@ public class MyBot : IChessBot
     readonly int[,,] historyTable = new int[2, 7, 64];
     readonly Move[] killerTable = new Move[128];
     // public int positionsEvaluated = 0;
-    public int TIME_PER_MOVE, CHECKMATE_SCORE = 9999999, aspiration = 15;
+    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 9999999, aspiration = 15;
     Move bestMoveRoot;
     /*
-    PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
-    Good for now - TODO: run our own tuning on top of this
+    PeSTO style tuned piece tables shamelessly stolen from TyrantBot
     */
-
-    readonly int[] pieceVal = {0, 100, 310, 330, 500, 1000, 10000 };
-    readonly int[] piecePhase = {0, 0, 1, 1, 2, 4, 0};
-    readonly ulong[] psts = {657614902731556116, 420894446315227099, 384592972471695068, 312245244820264086, 364876803783607569, 
-    366006824779723922, 366006826859316500, 786039115310605588, 421220596516513823, 366011295806342421, 366006826859316436, 
-    366006896669578452, 162218943720801556, 440575073001255824, 657087419459913430, 402634039558223453, 347425219986941203, 365698755348489557, 
-    311382605788951956, 147850316371514514, 329107007234708689, 402598430990222677, 402611905376114006, 329415149680141460, 257053881053295759, 291134268204721362, 
-    492947507967247313, 367159395376767958, 384021229732455700, 384307098409076181, 402035762391246293, 328847661003244824, 365712019230110867, 366002427738801364, 
-    384307168185238804, 347996828560606484, 329692156834174227, 365439338182165780, 386018218798040211, 456959123538409047, 347157285952386452, 365711880701965780, 
-    365997890021704981, 221896035722130452, 384289231362147538, 384307167128540502, 366006826859320596, 366006826876093716, 366002360093332756, 366006824694793492, 
-    347992428333053139, 457508666683233428, 329723156783776785, 329401687190893908, 366002356855326100, 366288301819245844, 329978030930875600, 420621693221156179, 
-    422042614449657239, 384602117564867863, 419505151144195476, 366274972473194070, 329406075454444949, 275354286769374224, 366855645423297932, 329991151972070674, 
-    311105941360174354, 256772197720318995, 365993560693875923, 258219435335676691, 383730812414424149, 384601907111998612, 401758895947998613, 420612834953622999, 
-    402607438610388375, 329978099633296596, 67159620133902};
+    private static readonly short[] PieceValues = { 82, 337, 365, 477, 1025, 0, // Middlegame
+                                           94, 281, 297, 512, 936, 0 }; // Endgame
+        // Big table packed with data from premade piece square tables
+        // Access using using PackedEvaluationTables[square][pieceType] = score
+    private readonly int[][] 
+        UnpackedPestoTables = new[] {
+            63746705523041458768562654720m, 71818693703096985528394040064m, 75532537544690978830456252672m, 75536154932036771593352371712m, 76774085526445040292133284352m, 3110608541636285947269332480m, 936945638387574698250991104m, 75531285965747665584902616832m,
+            77047302762000299964198997571m, 3730792265775293618620982364m, 3121489077029470166123295018m, 3747712412930601838683035969m, 3763381335243474116535455791m, 8067176012614548496052660822m, 4977175895537975520060507415m, 2475894077091727551177487608m,
+            2458978764687427073924784380m, 3718684080556872886692423941m, 4959037324412353051075877138m, 3135972447545098299460234261m, 4371494653131335197311645996m, 9624249097030609585804826662m, 9301461106541282841985626641m, 2793818196182115168911564530m,
+            77683174186957799541255830262m, 4660418590176711545920359433m, 4971145620211324499469864196m, 5608211711321183125202150414m, 5617883191736004891949734160m, 7150801075091790966455611144m, 5619082524459738931006868492m, 649197923531967450704711664m,
+            75809334407291469990832437230m, 78322691297526401047122740223m, 4348529951871323093202439165m, 4990460191572192980035045640m, 5597312470813537077508379404m, 4980755617409140165251173636m, 1890741055734852330174483975m, 76772801025035254361275759599m,
+            75502243563200070682362835182m, 78896921543467230670583692029m, 2489164206166677455700101373m, 4338830174078735659125311481m, 4960199192571758553533648130m, 3420013420025511569771334658m, 1557077491473974933188251927m, 77376040767919248347203368440m,
+            73949978050619586491881614568m, 77043619187199676893167803647m, 1212557245150259869494540530m, 3081561358716686153294085872m, 3392217589357453836837847030m, 1219782446916489227407330320m, 78580145051212187267589731866m, 75798434925965430405537592305m,
+            68369566912511282590874449920m, 72396532057599326246617936384m, 75186737388538008131054524416m, 77027917484951889231108827392m, 73655004947793353634062267392m, 76417372019396591550492896512m, 74568981255592060493492515584m, 70529879645288096380279255040m,
+        }.Select(packedTable =>
+        new System.Numerics.BigInteger(packedTable).ToByteArray().Take(12)
+                    // Using search max time since it's an integer than initializes to zero and is assgined before being used again 
+                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[TIME_PER_MOVE++ % 12])
+                .ToArray()
+        ).ToArray();
     public Move Think(Board board, Timer timer)
     {
         
@@ -180,41 +186,24 @@ public class MyBot : IChessBot
         return maxEval;
     }
 
+        int EvaluateBoard(Board board)
+        {
+            int middlegame = 0, endgame = 0, gamephase = 0, sideToMove = 2, piece, square;
+            for (; --sideToMove >= 0; middlegame = -middlegame, endgame = -endgame)
+                for (piece = -1; ++piece < 6;)
+                    for (ulong mask = board.GetPieceBitboard((PieceType)piece + 1, sideToMove > 0); mask != 0;)
+                    {
+                        // Gamephase, middlegame -> endgame
+                        // Multiply, then shift, then mask out 4 bits for value (0-16)
+                        gamephase += 0x00042110 >> piece * 4 & 0x0F;
 
-    //evaluation code shamelessly stolen from JW's example chess engine
-    //TODO: try and improve this eventually
-    public int GetPstVal(int psq) {
-            //black magic bit sorcery
-            return (int)(((psts[psq / 10] >> (6 * (psq % 10))) & 63) - 20) * 8;
-        }
-
-
-    public int EvaluateBoard(Board board) {
-            // positionsEvaluated++;
-            
-            int mg = 0, eg = 0, phase = 0;
-
-            foreach(bool sideToMove in new[] {true, false}) { //true = white, false = black
-                for(var p = PieceType.Pawn; p <= PieceType.King; p++) {
-                    int piece = (int)p, ind;
-                    ulong mask = board.GetPieceBitboard(p, sideToMove);
-                    while(mask != 0) {
-                        phase += piecePhase[piece];
-                        ind = 128 * (piece - 1) + BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ (sideToMove ? 56 : 0);
-                        mg += GetPstVal(ind) + pieceVal[piece];
-                        eg += GetPstVal(ind + 64) + pieceVal[piece];
+                        // Material and square evaluation
+                        square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ 56 * sideToMove;
+                        middlegame += UnpackedPestoTables[square][piece];
+                        endgame += UnpackedPestoTables[square][piece + 6];
                     }
-                }
-
-                mg = -mg;
-                eg = -eg;
-            }
-            // mg represents whites midgame score - blacks midgame score
-            // eg represents whites endgame score - blacks endgame score
-
-            int overallScore = (mg * phase + eg * (24 - phase)) / 24;
-            return board.IsWhiteToMove ? overallScore : -overallScore;
-
+            // Tempo bonus to help with aspiration windows
+            return (middlegame * gamephase + endgame * (24 - gamephase)) / 24 * (board.IsWhiteToMove ? 1 : -1) + gamephase / 2;
         }
 
 }
