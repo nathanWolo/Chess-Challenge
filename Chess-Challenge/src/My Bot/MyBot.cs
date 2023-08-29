@@ -11,15 +11,14 @@ public class MyBot : IChessBot
             key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
         }
     }
-    const int entries = 128 * 1024^2 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
+    const int entries = 128 * 1024 * 1024 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
     //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
-    TTEntry[] tt = new TTEntry[entries];
+    readonly TTEntry[] tt = new TTEntry[entries];
 
-    int[,,] historyTable = new int[2, 7, 64];
-
+    readonly int[,,] historyTable = new int[2, 7, 64];
+    readonly Move[] killerTable = new Move[64];
     // public int positionsEvaluated = 0;
-    public int TIME_PER_MOVE;
-    public int CHECKMATE_SCORE = 9999999;
+    public int TIME_PER_MOVE, CHECKMATE_SCORE = 9999999, aspiration = 15;
     Move bestMoveRoot;
     /*
     PeSTO's tuned piece tables, from https://www.chessprogramming.org/PeSTO%27s_Evaluation_Function
@@ -44,22 +43,28 @@ public class MyBot : IChessBot
         
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         Array.Clear(historyTable, 0, historyTable.Length); //reset history table
-        for (int depthLeft = 1, alpha = -CHECKMATE_SCORE, beta = CHECKMATE_SCORE, maxEval ;;) {
-            //iterative deepening
-            maxEval = NegaMax(board, depthLeft, 0, alpha, beta, timer);
-            // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
-            if (Abs(maxEval) > CHECKMATE_SCORE - 100 || depthLeft > 30) return bestMoveRoot; //ran out of time
-            //aspiration window
-            if (maxEval <= alpha || maxEval >= beta) { //fail low or high
-                if (maxEval <= alpha) alpha -= 15;
-                else beta += 15;
+        try {
+            for (int depthLeft = 1, alpha = -CHECKMATE_SCORE, beta = CHECKMATE_SCORE, maxEval ;;) {
+                //iterative deepening
+                maxEval = NegaMax(board, depthLeft, 0, alpha, beta, timer);
+                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                //aspiration window
+                if (maxEval <= alpha || maxEval >= beta) { //fail low or high
+                    aspiration *= 2;
+                    if (maxEval <= alpha) alpha -= aspiration;
+                    else beta += aspiration;
+                }
+                else {
+                    //reset aspiration window
+                    aspiration = 15;
+                    alpha = maxEval - aspiration;
+                    beta = maxEval + aspiration;
+                    depthLeft++;
+                }
             }
-            else {
-                //reset aspiration window
-                alpha = maxEval - 15;
-                beta = maxEval + 15;
-                depthLeft++;
-            }
+        }
+        catch {
+            return bestMoveRoot;
         }
     }
 
@@ -98,7 +103,7 @@ public class MyBot : IChessBot
             alpha = Max(alpha, maxEval);
         }
 
-        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant. Note, started at 150. Binary search [75, 150] to find best value
+        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
             && !qsearch ) {//dont prune in qsearch
             return beta; //fail hard, TODO: try fail soft
         }
@@ -123,18 +128,21 @@ public class MyBot : IChessBot
             Move ordering hierarchy:
             1. TT move
             2. captures (MVV/LVA)
-            3. history heuristic
+            3. Killers
+            4. history heuristic
             */
-            scores[i] = (legalMoves[i] == entry.move && entry.key == key) ? -999999 : //TT move
-                legalMoves[i].IsCapture ? (int)legalMoves[i].MovePieceType - 1000 * (int)legalMoves[i].CapturePieceType : //MVV/LVA
-                historyTable[depthSoFar & 1, (int)legalMoves[i].MovePieceType, legalMoves[i].TargetSquare.Index]; //history heuristic
+            Move moveToBeScored = legalMoves[i];
+            scores[i] = (moveToBeScored == entry.move && entry.key == key) ? -999999 : //TT move
+                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == moveToBeScored ? -500 : //killers
+                historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
 
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
-            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) return -CHECKMATE_SCORE; //ran out of time
+            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthLeft /= 0; //ran out of time
             
             if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
             
@@ -156,10 +164,11 @@ public class MyBot : IChessBot
             if (alpha >= beta){
                 //history heuristic
 
-                if (!move.IsCapture) 
+                if (!move.IsCapture) {
                     //dont update history for captures
                     historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
-                
+                    killerTable[depthSoFar] = move;
+                }
                 break;
             }
         }
