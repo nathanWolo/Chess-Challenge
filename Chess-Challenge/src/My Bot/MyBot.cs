@@ -16,7 +16,7 @@ public class MyBot : IChessBot
     readonly TTEntry[] tt = new TTEntry[entries];
 
     readonly int[,,] historyTable = new int[2, 7, 64];
-    readonly Move[] killerTable = new Move[64];
+    readonly Move[] killerTable = new Move[128];
     // public int positionsEvaluated = 0;
     public int TIME_PER_MOVE, CHECKMATE_SCORE = 9999999, aspiration = 15;
     Move bestMoveRoot;
@@ -71,6 +71,7 @@ public class MyBot : IChessBot
 
     public int NegaMax(Board board, int depthLeft, int depthSoFar, int alpha, int beta, Timer timer)
     {
+        if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE || depthSoFar > 64) depthSoFar /= 0; //ran out of time
         bool inCheck = board.IsInCheck(), root = depthSoFar == 0;
         if(inCheck) depthLeft++; //extend search depth if in check
 
@@ -132,9 +133,9 @@ public class MyBot : IChessBot
             4. history heuristic
             */
             Move moveToBeScored = legalMoves[i];
-            scores[i] = (moveToBeScored == entry.move && entry.key == key) ? -999999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -500 : //killers
+            scores[i] = (moveToBeScored == entry.move && entry.key == key) ? -99999999 : //TT move
+                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == moveToBeScored ? -500000 : //killers
                 historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
@@ -142,7 +143,6 @@ public class MyBot : IChessBot
 
         double origAlpha = alpha;
         for (int i =0; i < legalMoves.Length; i++) {
-            if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthLeft /= 0; //ran out of time
             
             if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
             
@@ -162,10 +162,9 @@ public class MyBot : IChessBot
             alpha = Max(alpha, maxEval);
 
             if (alpha >= beta){
-                //history heuristic
 
-                if (!move.IsCapture) {
-                    //dont update history for captures
+                //update history and killer move tables
+                if (!move.IsCapture) {  //dont update history for captures
                     historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
                     killerTable[depthSoFar] = move;
                 }

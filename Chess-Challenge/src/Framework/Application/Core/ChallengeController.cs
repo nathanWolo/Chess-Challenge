@@ -58,6 +58,7 @@ namespace ChessChallenge.Application
             Onion41,
             Onion42,
             Onion43,
+            Onion44,
             Benchmark1,
             Benchmark2,
         }
@@ -162,6 +163,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
         PlayerType.Onion41 => new Onion41(),
         PlayerType.Onion42 => new Onion42(),
         PlayerType.Onion43 => new Onion43(),
+        PlayerType.Onion44 => new Onion44(),
         PlayerType.EvilBot => new EvilBot(),
         PlayerType.MyQsearchV1 => new MyQsearchV1(),
         PlayerType.MyQsearchV2 => new MyQsearchV2(),
@@ -297,6 +299,7 @@ public static ChessChallenge.API.IChessBot? CreateBot(PlayerType type)
                 PlayerType.Onion41 => new ChessPlayer(new Onion41(), type, GameDurationMilliseconds),
                 PlayerType.Onion42 => new ChessPlayer(new Onion42(), type, GameDurationMilliseconds),
                 PlayerType.Onion43 => new ChessPlayer(new Onion43(), type, GameDurationMilliseconds),
+                PlayerType.Onion44 => new ChessPlayer(new Onion44(), type, GameDurationMilliseconds),
                 PlayerType.EvilBot => new ChessPlayer(new EvilBot(), type, GameDurationMilliseconds),
                 PlayerType.MyNaiveMinimax => new ChessPlayer(new MyNaiveMinimax(), type, GameDurationMilliseconds),
                 PlayerType.MyABMinimax => new ChessPlayer(new MyABMinimax(), type, GameDurationMilliseconds),
