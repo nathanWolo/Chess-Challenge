@@ -9,14 +9,16 @@ namespace ChessChallenge.Example
 {
 public class Onion46 : IChessBot
 {
-    //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
+    //const int entries = 128 * 1024 * 1024 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
     //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
-    //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
-    private readonly (ulong, Move, int, int, int)[] tt = new (ulong, Move, int, int, int)[5_000_000];
-    readonly int[,,] historyTable = new int[2, 7, 64];
-    readonly Move[] killerTable = new Move[128];
+
+    // zobrist hash, move, depth, score, bound
+    private readonly (ulong, Move, int, int, int)[] transpositionTable = new (ulong, Move, int, int, int)[5_000_000];
+
+    private readonly int[,,] historyTable = new int[2, 7, 64];
+    private readonly Move[] killerTable = new Move[128];
     // public int positionsEvaluated = 0;
-    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 9999999, aspiration = 15;
+    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 9999999, aspiration = 15, pestoIndex=0;
     Move bestMoveRoot;
     /*
     PeSTO style tuned piece tables shamelessly stolen from TyrantBot
@@ -38,7 +40,7 @@ public class Onion46 : IChessBot
         }.Select(packedTable =>
         new System.Numerics.BigInteger(packedTable).ToByteArray().Take(12)
                     // Using search max time since it's an integer than initializes to zero and is assgined before being used again 
-                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[TIME_PER_MOVE++ % 12])
+                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[pestoIndex++ % 12])
                 .ToArray()
         ).ToArray();
     public Move Think(Board board, Timer timer)
@@ -86,9 +88,7 @@ public class Onion46 : IChessBot
             return 0;
         }
         ulong key = board.ZobristKey;
-        //tt tuple anatomy:
-        //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
-        ref var entry = ref tt[key % 4_999_999];
+        ref var entry = ref transpositionTable[key % 5_000_000];
         int maxEval = -CHECKMATE_SCORE, entryScore = entry.Item4, entryBound = entry.Item5;
         if(!root && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
                 && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
@@ -99,21 +99,20 @@ public class Onion46 : IChessBot
             return entryScore;
         }
 
-        int standPat = EvaluateBoard(board); //static eval
 
-        //decide whether to continue the qsearch or not
+        //reverse futility pruning
+        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+        int standPat = EvaluateBoard(board);
         if(qsearch) {
             maxEval = standPat;
             if(maxEval >= beta) return maxEval;
             alpha = Max(alpha, maxEval);
         }
 
-        //reverse futility pruning
-        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
         if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
-            && !qsearch ) //dont prune in qsearch
-                return beta; //fail hard, TODO: try fail soft
-        
+            && !qsearch ) {//dont prune in qsearch
+            return beta; //fail hard, TODO: try fail soft
+        }
 
         //deep futility pruning
         //basic idea: It discards the moves that have no potential of raising alpha, which in turn requires some estimate of a potential value of a move. 
@@ -139,21 +138,24 @@ public class Onion46 : IChessBot
             4. history heuristic
             */
             Move moveToBeScored = legalMoves[i];
-            scores[i] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1_000_000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -500_000 : //killers
+            scores[i] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -99999999 : //TT move
+                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == moveToBeScored ? -500000 : //killers
                 historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
 
         double origAlpha = alpha;
-        for (int i =0; i < legalMoves.Length; i++) {  
+        for (int i =0; i < legalMoves.Length; i++) {
+            
             if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
+            
             Move move = legalMoves[i];
             board.MakeMove(move);
             int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer);
             board.UndoMove(move);
+
             if (eval > maxEval)
             {
                 maxEval = eval;
@@ -161,8 +163,11 @@ public class Onion46 : IChessBot
                 if (root && maxEval < beta && maxEval > origAlpha) 
                     bestMoveRoot = move; //is verifying the bounds here actually needed?
             }
+
             alpha = Max(alpha, maxEval);
+
             if (alpha >= beta){
+
                 //update history and killer move tables
                 if (!move.IsCapture) {  //dont update history for captures
                     historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
@@ -175,9 +180,7 @@ public class Onion46 : IChessBot
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
-        //anatomy of tt tuple:
-        //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
-        tt[key %  4_999_999] = (key, bestMove, depthLeft, maxEval, bound);
+        transpositionTable[key % 5_000_000] = (key, bestMove, depthLeft, maxEval, bound);
         
         return maxEval;
     }
@@ -201,7 +204,6 @@ public class Onion46 : IChessBot
             // Tempo bonus to help with aspiration windows
             return (middlegame * gamephase + endgame * (24 - gamephase)) / 24 * (board.IsWhiteToMove ? 1 : -1) + gamephase / 2;
         }
-
 }
 public class Onion45 : IChessBot
 {
@@ -220,7 +222,7 @@ public class Onion45 : IChessBot
     readonly int[,,] historyTable = new int[2, 7, 64];
     readonly Move[] killerTable = new Move[128];
     // public int positionsEvaluated = 0;
-    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 9999999, aspiration = 15;
+    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 9999999, aspiration = 15, pestoIndex=0;
     Move bestMoveRoot;
     /*
     PeSTO style tuned piece tables shamelessly stolen from TyrantBot
@@ -242,7 +244,7 @@ public class Onion45 : IChessBot
         }.Select(packedTable =>
         new System.Numerics.BigInteger(packedTable).ToByteArray().Take(12)
                     // Using search max time since it's an integer than initializes to zero and is assgined before being used again 
-                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[TIME_PER_MOVE++ % 12])
+                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[pestoIndex++ % 12])
                 .ToArray()
         ).ToArray();
     public Move Think(Board board, Timer timer)
