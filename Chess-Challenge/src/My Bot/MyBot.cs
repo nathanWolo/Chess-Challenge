@@ -4,18 +4,10 @@ using static System.Math;
 using System.Linq;
 public class MyBot : IChessBot
 {
-    struct TTEntry {
-        public ulong key; //64 bits
-        public Move move; //
-        public int depth, bound, score; //32 bits each
-        public TTEntry(ulong _key, Move _move, int _depth, int _score, int _bound) {
-            key = _key; move = _move; depth = _depth; score = _score; bound = _bound;
-        }
-    }
-    const int entries = 128 * 1024 * 1024 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
+    //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
     //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
-    readonly TTEntry[] tt = new TTEntry[entries];
-
+    //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
+    private readonly (ulong, Move, int, int, int)[] tt = new (ulong, Move, int, int, int)[5_000_000];
     readonly int[,,] historyTable = new int[2, 7, 64];
     readonly Move[] killerTable = new Move[128];
     // public int positionsEvaluated = 0;
@@ -89,31 +81,34 @@ public class MyBot : IChessBot
             return 0;
         }
         ulong key = board.ZobristKey;
-        TTEntry entry = tt[key % entries];
-        int maxEval = -CHECKMATE_SCORE;
-        if(!root && entry.key == key //verify that the entry is for this position (can very rarely be wrong)
-                && entry.depth >= depthLeft //verify that the entry is for a search of at least this depth
-                && (entry.bound == 3 // exact score
-                    || (entry.bound == 2 && entry.score >= beta )// lower bound, fail high
-                    || (entry.bound == 1 && entry.score <= alpha ))) {// upper bound, fail low
+        //tt tuple anatomy:
+        //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
+        ref var entry = ref tt[key % 4_999_999];
+        int maxEval = -CHECKMATE_SCORE, entryScore = entry.Item4, entryBound = entry.Item5;
+        if(!root && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
+                && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
+                && (entryBound == 3 // exact score
+                    || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
+                    || (entryBound == 1 && entryScore <= alpha ))) {// upper bound, fail low
             // positionsEvaluated++;
-            return entry.score;
+            return entryScore;
         }
 
+        int standPat = EvaluateBoard(board); //static eval
 
-        //reverse futility pruning
-        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        int standPat = EvaluateBoard(board);
+        //decide whether to continue the qsearch or not
         if(qsearch) {
             maxEval = standPat;
             if(maxEval >= beta) return maxEval;
             alpha = Max(alpha, maxEval);
         }
 
+        //reverse futility pruning
+        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
         if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
-            && !qsearch ) {//dont prune in qsearch
-            return beta; //fail hard, TODO: try fail soft
-        }
+            && !qsearch ) //dont prune in qsearch
+                return beta; //fail hard, TODO: try fail soft
+        
 
         //deep futility pruning
         //basic idea: It discards the moves that have no potential of raising alpha, which in turn requires some estimate of a potential value of a move. 
@@ -139,24 +134,21 @@ public class MyBot : IChessBot
             4. history heuristic
             */
             Move moveToBeScored = legalMoves[i];
-            scores[i] = (moveToBeScored == entry.move && entry.key == key) ? -99999999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -500000 : //killers
+            scores[i] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
+                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1_000_000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == moveToBeScored ? -500_000 : //killers
                 historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
 
         double origAlpha = alpha;
-        for (int i =0; i < legalMoves.Length; i++) {
-            
+        for (int i =0; i < legalMoves.Length; i++) {  
             if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
-            
             Move move = legalMoves[i];
             board.MakeMove(move);
             int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer);
             board.UndoMove(move);
-
             if (eval > maxEval)
             {
                 maxEval = eval;
@@ -164,11 +156,8 @@ public class MyBot : IChessBot
                 if (root && maxEval < beta && maxEval > origAlpha) 
                     bestMoveRoot = move; //is verifying the bounds here actually needed?
             }
-
             alpha = Max(alpha, maxEval);
-
             if (alpha >= beta){
-
                 //update history and killer move tables
                 if (!move.IsCapture) {  //dont update history for captures
                     historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
@@ -181,7 +170,9 @@ public class MyBot : IChessBot
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
-        tt[key % entries] = new TTEntry(key, bestMove, depthLeft, maxEval, bound);
+        //anatomy of tt tuple:
+        //item1 = zobrist key, item2 = best move, item3 = depth, item4 = score, item5 = bound
+        tt[key %  4_999_999] = (key, bestMove, depthLeft, maxEval, bound);
         
         return maxEval;
     }
