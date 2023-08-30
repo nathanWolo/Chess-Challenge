@@ -4,11 +4,10 @@ using static System.Math;
 using System.Linq;
 public class MyBot : IChessBot
 {
-    //const int entries = 128 * 1024 * 1024 / 28; //make sure this is always 128mb for local testing and submission, contest rules say 256mb but i fear the garbage collector
-    //its approx 5 million entries, so diminishing returns to make it bigger - not worth the risk of garbage collection putting over the memory limit
+    
 
     // zobrist hash, move, depth, score, bound
-    private readonly (ulong, Move, int, int, int)[] transpositionTable = new (ulong, Move, int, int, int)[5_000_000];
+    private readonly (ulong, Move, int, int, int)[] transpositionTable = new (ulong, Move, int, int, int)[5_000_000]; //5M entries is approx 128MB, will fluctuate due to GC
 
     private readonly int[,,] historyTable = new int[2, 7, 64];
     private readonly Move[] killerTable = new Move[128];
@@ -72,12 +71,12 @@ public class MyBot : IChessBot
     public int NegaMax(Board board, int depthLeft, int depthSoFar, int alpha, int beta, Timer timer)
     {
         if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE || depthSoFar > 64) depthSoFar /= 0; //ran out of time
-        bool inCheck = board.IsInCheck(), root = depthSoFar == 0;
+        bool inCheck = board.IsInCheck(), notRoot = depthSoFar != 0;
         if(inCheck) depthLeft++; //extend search depth if in check
 
         bool qsearch = depthLeft <= 0;
         Move bestMove = Move.NullMove;
-        if (!root && (board.IsInsufficientMaterial() 
+        if (notRoot && (board.IsInsufficientMaterial() 
                         || board.IsRepeatedPosition() 
                         || board.FiftyMoveCounter >= 100)) {
             return 0;
@@ -85,7 +84,7 @@ public class MyBot : IChessBot
         ulong key = board.ZobristKey;
         ref var entry = ref transpositionTable[key % 5_000_000];
         int maxEval = -CHECKMATE_SCORE, entryScore = entry.Item4, entryBound = entry.Item5;
-        if(!root && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
+        if(notRoot && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
                 && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entryBound == 3 // exact score
                     || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
@@ -103,7 +102,13 @@ public class MyBot : IChessBot
             if(maxEval >= beta) return maxEval;
             alpha = Max(alpha, maxEval);
         }
+        else if (depthLeft > 2 && !inCheck){ //null move pruning
+            board.ForceSkipTurn();
+            int nullEval = -NegaMax(board, depthLeft /2, depthSoFar + 1, -beta, -beta + 1, timer);
+            board.UndoSkipTurn();
+            if (nullEval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
+        }
         if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
             && !qsearch ) {//dont prune in qsearch
             return beta; //fail hard, TODO: try fail soft
@@ -148,14 +153,14 @@ public class MyBot : IChessBot
             
             Move move = legalMoves[i];
             board.MakeMove(move);
-            int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer);
+            int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer); //promotion extension
             board.UndoMove(move);
 
             if (eval > maxEval)
             {
                 maxEval = eval;
                 bestMove = move;
-                if (root && maxEval < beta && maxEval > origAlpha) 
+                if (!notRoot && maxEval < beta && maxEval > origAlpha) 
                     bestMoveRoot = move; //is verifying the bounds here actually needed?
             }
 
