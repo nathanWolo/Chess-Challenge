@@ -33,7 +33,6 @@ public class MyBot : IChessBot
             68369566912511282590874449920m, 72396532057599326246617936384m, 75186737388538008131054524416m, 77027917484951889231108827392m, 73655004947793353634062267392m, 76417372019396591550492896512m, 74568981255592060493492515584m, 70529879645288096380279255040m,
         }.Select(packedTable =>
         new System.Numerics.BigInteger(packedTable).ToByteArray().Take(12)
-                    // Using search max time since it's an integer than initializes to zero and is assgined before being used again 
                     .Select(square => (int)((sbyte)square * 1.461) + PieceValues[pestoIndex++ % 12])
                 .ToArray()
         ).ToArray();
@@ -41,12 +40,12 @@ public class MyBot : IChessBot
     {
         
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
-        Array.Clear(historyTable, 0, historyTable.Length); //reset history table
+        Array.Clear(historyTable, 0, historyTable.Length); //reset history table, TODO: replace historyTable.Length with a constant of 896
         try {
             for (int depthLeft = 1, alpha = -CHECKMATE_SCORE, beta = CHECKMATE_SCORE, maxEval ;;) {
                 //iterative deepening
                 maxEval = NegaMax(board, depthLeft, 0, alpha, beta, timer);
-                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
                 //aspiration window
                 if (maxEval <= alpha || maxEval >= beta) { //fail low or high
                     aspiration *= 2;
@@ -70,7 +69,7 @@ public class MyBot : IChessBot
 
     public int NegaMax(Board board, int depthLeft, int depthSoFar, int alpha, int beta, Timer timer)
     {
-        if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE || depthSoFar > 64) depthSoFar /= 0; //ran out of time
+        if (timer.MillisecondsElapsedThisTurn > TIME_PER_MOVE || depthSoFar > 64) depthSoFar /= 0; //ran out of time, TODO: should maybe be depthLeft instead of depthSoFar
         bool inCheck = board.IsInCheck(), notRoot = depthSoFar != 0;
         if(inCheck) depthLeft++; //extend search depth if in check
 
@@ -89,13 +88,11 @@ public class MyBot : IChessBot
                 && (entryBound == 3 // exact score
                     || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
                     || (entryBound == 1 && entryScore <= alpha ))) {// upper bound, fail low
-            // positionsEvaluated++;
             return entryScore;
         }
 
 
-        //reverse futility pruning
-        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+
         int standPat = EvaluateBoard(board);
         if(qsearch) {
             maxEval = standPat;
@@ -109,6 +106,8 @@ public class MyBot : IChessBot
             if (nullEval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
         }
+        //reverse futility pruning
+        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
         if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
             && !qsearch ) {//dont prune in qsearch
             return beta; //fail hard, TODO: try fail soft
@@ -122,14 +121,14 @@ public class MyBot : IChessBot
 
         Span<Move> legalMoves = stackalloc Move[256]; //stackalloc is faster than new
         board.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
-        if (legalMoves.Length == 0 && !qsearch) {
-                if (inCheck) return  -CHECKMATE_SCORE + depthSoFar;
-                return 0;
+        int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = 0;
+        if (numMoves == 0 && !qsearch) {
+                return inCheck ? -CHECKMATE_SCORE + depthSoFar : 0;
             }
 
-        Span<int> scores = stackalloc int[legalMoves.Length];
+        Span<int> scores = stackalloc int[numMoves];
         //lower score -> search first
-        for (int i = 0; i < legalMoves.Length; i++) {
+        while(moveIndex < numMoves) {
             /*
             Move ordering hierarchy:
             1. TT move
@@ -137,21 +136,21 @@ public class MyBot : IChessBot
             3. Killers
             4. history heuristic
             */
-            Move moveToBeScored = legalMoves[i];
-            scores[i] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -99999999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 1000000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -500000 : //killers
+            Move moveToBeScored = legalMoves[moveIndex];
+            scores[moveIndex++] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
+                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 10_000_000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == moveToBeScored ? -5_000_000 : //killers
                 historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
-
-        double origAlpha = alpha;
-        for (int i =0; i < legalMoves.Length; i++) {
+        moveIndex = 0;
+        while ( moveIndex < numMoves) {
             
-            if(canPruneMove && scores[i] == 0 && i > 0) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
-            
-            Move move = legalMoves[i];
+            Move move = legalMoves[moveIndex];
+            //use single ands to avoid compiler shortcutting on &&s
+            //this way our increment is always executed
+            if(scores[moveIndex] == 0  & moveIndex++ > 1 & canPruneMove) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
             board.MakeMove(move);
             int eval = -NegaMax( board, depthLeft - 1, depthSoFar + 1, -beta, -alpha, timer); //promotion extension
             board.UndoMove(move);
