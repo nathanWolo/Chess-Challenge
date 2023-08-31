@@ -16,7 +16,7 @@ public class MyBot : IChessBot
     private readonly int[,,] historyTable = new int[2, 7, 64];
     private readonly Move[] killerTable = new Move[256];
     // public int positionsEvaluated = 0;
-    public static int TIME_PER_MOVE = 0, CHECKMATE_SCORE = 12_000, aspiration = 15;
+    public static int TIME_PER_MOVE = 0, aspiration = 12;
     Move bestMoveRoot;
     /*
     PeSTO style tuned piece tables shamelessly stolen from TyrantBot
@@ -37,7 +37,7 @@ public class MyBot : IChessBot
             68369566912511282590874449920m, 72396532057599326246617936384m, 75186737388538008131054524416m, 77027917484951889231108827392m, 73655004947793353634062267392m, 76417372019396591550492896512m, 74568981255592060493492515584m, 70529879645288096380279255040m,
         }.Select(packedTable =>
         new System.Numerics.BigInteger(packedTable).ToByteArray().Take(12)
-                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[CHECKMATE_SCORE++ % 12])
+                    .Select(square => (int)((sbyte)square * 1.461) + PieceValues[aspiration++ % 12])
                 .ToArray()
         ).ToArray();
 
@@ -50,11 +50,11 @@ public class MyBot : IChessBot
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         Array.Clear(historyTable, 0, 896); //reset history table, TODO: replace historyTable.Length with a constant of 896
         try {
-            for (int depthLeft = 1, alpha = -CHECKMATE_SCORE, beta = CHECKMATE_SCORE, maxEval ;;) {
+            for (int depthLeft = 1, alpha = -12_000, beta = 12_000, maxEval ;;) {
                 //iterative deepening
                 maxEval = NegaMax(depthLeft, 0, alpha, beta);
                 
-                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
                 //aspiration window
                 if (maxEval <= alpha || maxEval >= beta) { //fail low or high
                     aspiration *= 2;
@@ -63,7 +63,7 @@ public class MyBot : IChessBot
                 }
                 else {
                     //reset aspiration window
-                    aspiration = 15;
+                    aspiration = 12;
                     alpha = maxEval - aspiration;
                     beta = maxEval + aspiration;
                     depthLeft++;
@@ -88,7 +88,7 @@ public class MyBot : IChessBot
             return 0;
         ulong key = globalBoard.ZobristKey;
         ref var entry = ref transpositionTable[key % 5_000_000];
-        int maxEval = -CHECKMATE_SCORE, entryScore = entry.Item4, entryBound = entry.Item5;
+        int maxEval = -12_000, entryScore = entry.Item4, entryBound = entry.Item5;
         if(notRoot && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
                 && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entryBound == 3 // exact score
@@ -102,10 +102,10 @@ public class MyBot : IChessBot
         int standPat = EvaluateBoard();
         if(qsearch) {
             maxEval = standPat;
-            if(maxEval >= beta) return maxEval;
+            if(maxEval >= beta) return beta;
             alpha = Max(alpha, maxEval);
         }
-        else if (depthLeft > 2 && !inCheck){ //null move pruning
+        else if (depthLeft > 2 && !inCheck && notRoot){ //null move pruning
             globalBoard.ForceSkipTurn();
             int nullEval = -NegaMax(depthLeft /2, depthSoFar + 1, -beta, -beta + 1);
             globalBoard.UndoSkipTurn();
@@ -114,8 +114,7 @@ public class MyBot : IChessBot
         }
         //reverse futility pruning
         //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        if (standPat - 150 * depthLeft >= beta  //TODO: tune this constant.
-            && !qsearch ) {//dont prune in qsearch
+        else if (standPat - 150 * depthLeft >= beta && depthLeft < 8 ) { //TODO: tune this constant.
             return beta; //fail hard, TODO: try fail soft
         }
 
@@ -129,7 +128,7 @@ public class MyBot : IChessBot
         globalBoard.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
         int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = 0;
         if (numMoves == 0 && !qsearch) {
-                return inCheck ? -CHECKMATE_SCORE + depthSoFar : 0;
+                return inCheck ? -12_000 + depthSoFar : 0;
             }
 
         Span<int> scores = stackalloc int[numMoves];
@@ -160,7 +159,7 @@ public class MyBot : IChessBot
             bool moveIsQuiet = scores[moveIndex] == 0, canLMR = moveIndex > 4 && depthLeft > 3 && moveIsQuiet;
             if(moveIsQuiet & moveIndex++ > 1 & canPruneMove) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
             globalBoard.MakeMove(move);
-            int eval = -NegaMax( depthLeft - (canLMR ? 3 : 1), depthSoFar + 1, -beta, -alpha); //can be shortened to depthLeft - canLMR ? 2 : 1
+            int eval = -NegaMax(depthLeft - (canLMR ? 3 : 1), depthSoFar + 1, -beta, -alpha); //can be shortened to depthLeft - canLMR ? 2 : 1
             if (canLMR && eval > alpha) eval = -NegaMax(depthLeft - 1, depthSoFar + 1, -beta, -alpha); //re-search if LMR failed high
             globalBoard.UndoMove(move);
 
