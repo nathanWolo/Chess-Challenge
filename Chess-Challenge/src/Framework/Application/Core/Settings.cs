@@ -7,8 +7,8 @@ namespace ChessChallenge.Application
         public const string Version = "1.20";
 
         // Game settings
-        public const int GameDurationMilliseconds = 15 * 1000;
-        public const int IncrementMilliseconds = 300;
+        public const int GameDurationMilliseconds = 10 * 1000;
+        public const int IncrementMilliseconds = 100;
         public const float MinMoveDelay = 0;
         public static readonly bool RunBotsOnSeparateThread = true;
 

@@ -54,7 +54,7 @@ public class MyBot : IChessBot
                 //iterative deepening
                 maxEval = NegaMax(depthLeft, 0, alpha, beta);
                 
-                Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
                 //aspiration window
                 if (maxEval <= alpha || maxEval >= beta) { //fail low or high
                     aspiration *= 2;
@@ -79,7 +79,7 @@ public class MyBot : IChessBot
     public int NegaMax(int depthLeft, int depthSoFar, int alpha, int beta)
     {
         if (globalTimer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthSoFar /= 0; //ran out of time, TODO: should maybe be depthLeft instead of depthSoFar
-        bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0;
+        bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0, notPV = beta - alpha == 1;
         if(inCheck) depthLeft++; //extend search depth if in check
 
         bool qsearch = depthLeft <= 0;
@@ -105,28 +105,26 @@ public class MyBot : IChessBot
             if(maxEval >= beta) return beta;
             alpha = Max(alpha, maxEval);
         }
-        else if (depthLeft > 2 && !inCheck && notRoot){ //null move pruning
-            globalBoard.ForceSkipTurn();
-            int nullEval = -NegaMax(depthLeft /2, depthSoFar + 1, -beta, -beta + 1);
-            globalBoard.UndoSkipTurn();
-            if (nullEval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
+        else if (notPV && notRoot) {
+            if (depthLeft > 2 && !inCheck){ //null move pruning
+                globalBoard.ForceSkipTurn();
+                int nullEval = -NegaMax(depthLeft /2, depthSoFar + 1, -beta, -beta + 1);
+                globalBoard.UndoSkipTurn();
+                if (nullEval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
-        }
-        //reverse futility pruning
-        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        else if (standPat - 150 * depthLeft >= beta && depthLeft < 8 ) { //TODO: tune this constant.
-            return beta; //fail hard, TODO: try fail soft
+            }
+            //reverse futility pruning
+            //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+            else if (standPat - 150 * depthLeft >= beta && depthLeft < 8) { //TODO: tune this constant.
+                return beta; //fail hard, TODO: try fail soft
+            }
         }
 
-        //deep futility pruning
-        //basic idea: It discards the moves that have no potential of raising alpha, which in turn requires some estimate of a potential value of a move. 
-        //This is calculated by adding a futility margin (representing the largest conceivable positional gain) to the evaluation of the current position.
-        bool canPruneMove = depthLeft <= 8 && standPat + depthLeft * 225 <= alpha; //TODO: tune this constant
 
 
         Span<Move> legalMoves = stackalloc Move[256]; //stackalloc is faster than new
         globalBoard.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
-        int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = 0;
+        int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = 0, eval;
         if (numMoves == 0 && !qsearch) {
                 return inCheck ? -12_000 + depthSoFar : 0;
             }
@@ -149,18 +147,29 @@ public class MyBot : IChessBot
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
-        moveIndex = 0;
-        while ( moveIndex < numMoves) {
+        moveIndex = -1;
+        while (++moveIndex < numMoves) {
             
             Move move = legalMoves[moveIndex];
             //use single ands to avoid compiler shortcutting on &&s
             //this way our increment is always executed
             //late move reduction condition
-            bool moveIsQuiet = scores[moveIndex] == 0, canLMR = moveIndex > 4 && depthLeft > 3 && moveIsQuiet;
-            if(moveIsQuiet & moveIndex++ > 1 & canPruneMove) continue; //prune move if it cant raise alpha, not a tactical move, and not the first move
+            bool canLMR = moveIndex > 4 && depthLeft > 3 && scores[moveIndex] == 0;
+            //futility pruning
+            //futility pruning
             globalBoard.MakeMove(move);
-            int eval = -NegaMax(depthLeft - (canLMR ? 3 : 1), depthSoFar + 1, -beta, -alpha); //can be shortened to depthLeft - canLMR ? 2 : 1
-            if (canLMR && eval > alpha) eval = -NegaMax(depthLeft - 1, depthSoFar + 1, -beta, -alpha); //re-search if LMR failed high
+            //PVS
+            if (moveIndex == 0 || qsearch) {
+                eval = -NegaMax(depthLeft - 1, depthSoFar + 1, -beta, -alpha);
+            }
+            else {
+                if(depthLeft <= 8 && standPat + depthLeft * 225 <= alpha && notPV && !qsearch){
+                    globalBoard.UndoMove(move);
+                    continue; //futility pruning
+                }
+                eval = -NegaMax(depthLeft - (canLMR ? 3 : 1), depthSoFar + 1, -alpha - 1, -alpha); //search with a null window
+                if ((canLMR || eval < beta) &&  eval > alpha) eval = -NegaMax(depthLeft - 1, depthSoFar + 1, -beta, -alpha); //re-search if failed high
+            }
             globalBoard.UndoMove(move);
 
             if (eval > maxEval)
