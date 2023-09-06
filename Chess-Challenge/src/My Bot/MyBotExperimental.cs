@@ -1,8 +1,8 @@
-using ChessChallenge.API;
+﻿using ChessChallenge.API;
 using System;
 using static System.Math;
 using System.Linq;
-public class MyBot : IChessBot
+public class MyBotExperimental : IChessBot
 {
     
 
@@ -76,14 +76,14 @@ public class MyBot : IChessBot
     }
 
 
-    public int PVS(int depthLeft, int depthSoFar, int alpha, int beta, bool canNMP = true)
+    public int PVS(int depthLeft, int depthSoFar, int alpha, int beta)
     {
         if (globalTimer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthSoFar /= 0;
         bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0, notPV = beta - alpha == 1, canFutilityPrune = false;
         if(inCheck) depthLeft++; //extend search depth if in check
 
         bool qsearch = depthLeft <= 0;
-        Move bestMove = default;
+        Move bestMove = default, tempMove;
         if (notRoot && globalBoard.IsRepeatedPosition()) 
             return 0;
         ulong key = globalBoard.ZobristKey;
@@ -92,11 +92,11 @@ public class MyBot : IChessBot
         
 
         //weird ass local method bs to save on tokens
-        int Search(int newAlpha, int reduction = 1, bool canNMP =true) => eval = -PVS(depthLeft - reduction, depthSoFar + 1, -newAlpha, -alpha, canNMP);
+        int Search(int newAlpha, int reduction = 1) => eval = -PVS(depthLeft - reduction, depthSoFar + 1, -newAlpha, -alpha);
 
 
 
-        if(notRoot && notPV && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
+        if(notRoot && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
                 && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entryBound == 3 // exact score
                     || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
@@ -111,19 +111,19 @@ public class MyBot : IChessBot
             if(maxEval >= beta) return beta;
             alpha = Max(alpha, maxEval);
         }
-        else if (notPV && notRoot && !inCheck) {
+        else if (notPV   && !inCheck && notRoot) {
             if (depthLeft > 2){ //null move pruning
                 globalBoard.ForceSkipTurn();
-                Search(beta, depthLeft/2, false);
+                Search(beta, depthLeft/2);
                 globalBoard.UndoSkipTurn();
                 if (eval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
             }
             //reverse futility pruning
             //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-            else if (standPat - 150 * depthLeft >= beta && depthLeft < 8)  //TODO: tune this constant.
+            else if (standPat - 100 * depthLeft >= beta && depthLeft < 8)  //TODO: tune this constant.
                 return beta; //fail hard, TODO: try fail soft
-            canFutilityPrune = depthLeft <= 8 && standPat + depthLeft * 225 <= alpha;
+            canFutilityPrune = depthLeft < 8 && standPat + depthLeft * 100 <= alpha;
         }
 
 
@@ -145,47 +145,47 @@ public class MyBot : IChessBot
             3. Killers
             4. history heuristic
             */
-            Move moveToBeScored = legalMoves[moveIndex];
-            scores[moveIndex] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 10_000_000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -5_000_000 : //killers
-                historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
+            tempMove = legalMoves[moveIndex];
+            scores[moveIndex] = (tempMove == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
+                tempMove.IsCapture ? (int)tempMove.MovePieceType - 10_000_000 * (int)tempMove.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == tempMove ? -5_000_000 : //killers
+                historyTable[depthSoFar & 1, (int)tempMove.MovePieceType, tempMove.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
         moveIndex = -1;
         while (++moveIndex < numMoves) {
-            if(canFutilityPrune && scores[moveIndex] == 0)
+            if(canFutilityPrune && moveIndex > 0 )
                     continue; //futility pruning
-            Move move = legalMoves[moveIndex];
+            tempMove = legalMoves[moveIndex];
             //late move reduction condition
-            bool canLMR = moveIndex > 4 && depthLeft > 3 && scores[moveIndex] == 0;
-            globalBoard.MakeMove(move);
+            bool canLMR =  depthLeft > 3 && scores[moveIndex] == 0 && moveIndex > 2;
+            globalBoard.MakeMove(tempMove);
             //PVS
             if (moveIndex == 0 || qsearch) { //full search on first move, or in qsearch
                 Search(beta);
             }
             else {
-                Search(alpha + 1, canLMR ? 3 : 1);
+                Search(alpha + 1, canLMR ? 1 + (int)(Log(depthLeft) * Log(moveIndex) / 2) : 1);
                 if ((canLMR || eval < beta) &&  eval > alpha) Search(beta); //re-search if failed high
             }
-            globalBoard.UndoMove(move);
+            globalBoard.UndoMove(tempMove);
 
             if (eval > maxEval)
             {
                 maxEval = eval;
-                bestMove = move;
+                bestMove = tempMove;
                 if (!notRoot) 
-                    bestMoveRoot = move; //is verifying the bounds here actually needed?
+                    bestMoveRoot = tempMove; //is verifying the bounds here actually needed?
             }
 
             alpha = Max(alpha, maxEval);
 
             if (alpha >= beta){
                 //update history and killer move tables
-                if (!move.IsCapture) {  //dont update history for captures
-                    historyTable[depthSoFar & 1, (int)move.MovePieceType, move.TargetSquare.Index] -= depthLeft * depthLeft;
-                    killerTable[depthSoFar] = move;
+                if (!tempMove.IsCapture) {  //dont update history for captures
+                    historyTable[depthSoFar & 1, (int)tempMove.MovePieceType, tempMove.TargetSquare.Index] -= depthLeft * depthLeft;
+                    killerTable[depthSoFar] = tempMove;
                 }
                 break;
             }
