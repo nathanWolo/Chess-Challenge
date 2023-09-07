@@ -78,24 +78,26 @@ public class MyBot : IChessBot
 
     public int PVS(int depthLeft, int depthSoFar, int alpha, int beta)
     {
-        if (globalTimer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthSoFar /= 0; //ran out of time, TODO: should maybe be depthLeft instead of depthSoFar
-        bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0, notPV = beta == alpha + 1;
+        if (globalTimer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthSoFar /= 0;
+        bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0, notPV = beta == alpha + 1, canFutilityPrune=false;
         if(inCheck) depthLeft++; //extend search depth if in check
 
         bool qsearch = depthLeft <= 0;
-        Move bestMove = Move.NullMove;
-        if (notRoot && globalBoard.IsRepeatedPosition()) 
-            return 0;
-        ulong key = globalBoard.ZobristKey;
-        ref var entry = ref transpositionTable[key % 5_000_000];
-        int maxEval = -12_000, entryScore = entry.Item4, entryBound = entry.Item5, eval;
+        Move bestMove = default;
+
+        if (notRoot && globalBoard.IsRepeatedPosition()) return 0;
+
+        ulong boardKey = globalBoard.ZobristKey;
+        int maxEval = -12_000, eval, standPat = EvaluateBoard();
         
+        var (entryKey, entryMove, entryDepth, entryScore, entryBound) = transpositionTable[boardKey % 5_000_000];
+
         //weird ass local method bs to save on tokens
         int Search(int newAlpha, int reduction = 1) => eval = -PVS(depthLeft - reduction, depthSoFar + 1, -newAlpha, -alpha);
 
         //transposition  table lookup
-        if(notRoot && entry.Item1 == key //verify that the entry is for this position (can very rarely be wrong)
-                && entry.Item3 >= depthLeft //verify that the entry is for a search of at least this depth
+        if(notRoot && entryKey == boardKey //verify that the entry is for this position (can very rarely be wrong)
+                && entryDepth >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entryBound == 3 // exact score
                     || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
                     || (entryBound == 1 && entryScore <= alpha ))) {// upper bound, fail low
@@ -104,37 +106,39 @@ public class MyBot : IChessBot
 
 
 
-        int standPat = EvaluateBoard();
         if(qsearch) {
             maxEval = standPat;
             if(maxEval >= beta) return beta;
             alpha = Max(alpha, maxEval);
         }
-        else if (depthLeft > 2 && !inCheck && notRoot && notPV){ //null move pruning
-            globalBoard.ForceSkipTurn();
-            // eval = -PVS(depthLeft/2, depthSoFar + 1, -beta, -beta + 1);
-            Search(beta, 3 + depthLeft / 4);
-            globalBoard.UndoSkipTurn();
-            if (eval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
+        else if (notPV && !inCheck) {
+            if (depthLeft > 2){ //null move pruning
+                globalBoard.ForceSkipTurn();
+                // eval = -PVS(depthLeft/2, depthSoFar + 1, -beta, -beta + 1);
+                Search(beta, 3 + depthLeft / 4);
+                globalBoard.UndoSkipTurn();
+                if (eval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
-        }
-        //reverse futility pruning
-        //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-        else if (standPat - 150 * depthLeft >= beta && depthLeft < 8 && notPV) { //TODO: tune this constant.
-            return beta; //fail hard, TODO: try fail soft
+            }
+            //reverse futility pruning
+            //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+            if (standPat - 150 * depthLeft >= beta && depthLeft < 8) //TODO: tune this constant.
+                return beta; //fail hard, TODO: try fail soft
+            
+            canFutilityPrune = depthLeft <= 8 && standPat + depthLeft * 225 <= alpha;
         }
 
 
         Span<Move> legalMoves = stackalloc Move[256]; //stackalloc is faster than new
         globalBoard.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
-        int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = 0;
+        int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = -1;
         if (numMoves == 0 && !qsearch) {
                 return inCheck ? -12_000 + depthSoFar : 0;
             }
 
         Span<int> scores = stackalloc int[numMoves];
         //lower score -> search first
-        while(moveIndex < numMoves) {
+        while(++moveIndex < numMoves) {
             /*
             Move ordering hierarchy:
             1. TT move
@@ -142,11 +146,11 @@ public class MyBot : IChessBot
             3. Killers
             4. history heuristic
             */
-            Move moveToBeScored = legalMoves[moveIndex];
-            scores[moveIndex++] = (moveToBeScored == entry.Item2 && entry.Item1 == key) ? -999_999_999 : //TT move
-                moveToBeScored.IsCapture ? (int)moveToBeScored.MovePieceType - 10_000_000 * (int)moveToBeScored.CapturePieceType : //MVV/LVA
-                killerTable[depthSoFar] == moveToBeScored ? -5_000_000 : //killers
-                historyTable[depthSoFar & 1, (int)moveToBeScored.MovePieceType, moveToBeScored.TargetSquare.Index]; //history heuristic
+            bestMove = legalMoves[moveIndex];
+            scores[moveIndex] = (bestMove == entryMove && entryKey == boardKey) ? -999_999_999 : //TT move
+                bestMove.IsCapture ? (int)bestMove.MovePieceType - 10_000_000 * (int)bestMove.CapturePieceType : //MVV/LVA
+                killerTable[depthSoFar] == bestMove ? -5_000_000 : //killers
+                historyTable[depthSoFar & 1, (int)bestMove.MovePieceType, bestMove.TargetSquare.Index]; //history heuristic
         }
         MemoryExtensions.Sort(scores, legalMoves);
 
@@ -157,6 +161,8 @@ public class MyBot : IChessBot
             //use single ands to avoid compiler shortcutting on &&s
             //this way our increment is always executed
             //late move reduction condition
+            if(canFutilityPrune && scores[moveIndex] == 0) 
+                    continue;
             bool canLMR = moveIndex > 4 && depthLeft > 3 && scores[moveIndex] == 0;
             //futility pruning
             globalBoard.MakeMove(move);
@@ -166,15 +172,8 @@ public class MyBot : IChessBot
                 // eval = -PVS(depthLeft - 1, depthSoFar + 1, -beta, -alpha);
             }
             else {
-                //futility pruning
-                if(depthLeft <= 8 && standPat + depthLeft * 225 <= alpha && notPV) {
-                    globalBoard.UndoMove(move);
-                    continue;
-                }
                 Search(alpha +1, canLMR? 3 : 1);
                 if ((canLMR || eval < beta) &&  eval > alpha) Search(beta); //re-search if failed high
-                // eval = -PVS(depthLeft - (canLMR ? 3 : 1), depthSoFar + 1, -alpha - 1, -alpha); //search with a null window
-                // if ((canLMR || eval < beta) &&  eval > alpha) eval = -PVS(depthLeft - 1, depthSoFar + 1, -beta, -alpha); //re-search if failed high
             }
             globalBoard.UndoMove(move);
 
@@ -201,7 +200,7 @@ public class MyBot : IChessBot
         int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
-        transpositionTable[key % 5_000_000] = (key, bestMove, depthLeft, maxEval, bound);
+        transpositionTable[boardKey % 5_000_000] = (boardKey, bestMove, depthLeft, maxEval, bound);
         
         return maxEval;
     }
