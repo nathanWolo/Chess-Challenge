@@ -21,7 +21,7 @@ public class MyBot : IChessBot
     /*
     PeSTO style tuned piece tables shamelessly stolen from TyrantBot
     */
-    private static readonly short[] PieceValues = { 82, 337, 365, 477, 1025, 0, // Middlegame
+    private static readonly short[] PieceValues =  { 82, 337, 365, 477, 1025, 0, // Middlegame
                                            94, 281, 297, 512, 936, 0 }; // Endgame
         // Big table packed with data from premade piece square tables
         // Access using using PackedEvaluationTables[square][pieceType] = score
@@ -58,7 +58,7 @@ public class MyBot : IChessBot
         TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         Array.Clear(historyTable, 0, 896); //reset history table, TODO: replace historyTable.Length with a constant of 896
         try {
-            for (int depthLeft = 1, alpha = -12_000, beta = 12_000, maxEval ;;) {
+            for (int depthLeft = 1, alpha = -36_000, beta = 36_000, maxEval ;;) {
                 //iterative deepening
                 maxEval = PVS(depthLeft, 0, alpha, beta);
                 
@@ -96,7 +96,7 @@ public class MyBot : IChessBot
         if (notRoot && globalBoard.IsRepeatedPosition()) return 0;
 
         ulong boardKey = globalBoard.ZobristKey;
-        int maxEval = -12_000, eval, standPat = EvaluateBoard();
+        int maxEval = -36_000, eval, standPat = EvaluateBoard();
         
         var (entryKey, entryMove, entryDepth, entryScore, entryBound) = transpositionTable[boardKey % 5_000_000];
 
@@ -161,7 +161,7 @@ public class MyBot : IChessBot
         globalBoard.GetLegalMovesNonAlloc(ref legalMoves, qsearch && !inCheck); //only generate captures in qsearch, but not if theres a check
         int origAlpha = alpha, numMoves = legalMoves.Length, moveIndex = -1;
         if (numMoves == 0 && !qsearch) {
-                return inCheck ? -12_000 + depthSoFar : 0;
+                return inCheck ? -36_000 + depthSoFar : 0;
             }
 
         Span<int> scores = stackalloc int[numMoves];
@@ -195,14 +195,23 @@ public class MyBot : IChessBot
                     continue;
             //futility pruning
             globalBoard.MakeMove(move);
-            //PVS
-            if (moveIndex == 0 || qsearch) 
-                Search(beta);
+            // if (moveIndex == 0 || qsearch) 
+            //     Search(beta);
             
-            else {
-                Search(alpha +1, quiet ? 1 + (int)(Log(depthLeft) * Log(moveIndex) / 2) : 1); //lmr formula stolen from ethereal
-                if ((quiet || eval < beta) &&  eval > alpha) Search(beta); //re-search if failed high
-            }
+            // else {
+            //     Search(alpha +1, quiet ? 1 + (int)(Log(depthLeft) * Log(moveIndex) / 2) : 1); //lmr formula stolen from ethereal
+            //     if ((quiet || eval < beta) &&  eval > alpha) Search(beta); //re-search if failed high
+            // }
+                //PVS
+                //schizophrenia syntax incoming
+                //saves 5 tokens. should behave the same as the commented out code above
+                if (moveIndex == 0 || qsearch || //conditions to do full window search
+
+                        // only do a reduced search if the move is quiet
+                    ((Search(alpha +1, quiet ? 1 + (int)(Log(depthLeft) * Log(moveIndex) / 2) : 1) > alpha) && (quiet || eval < beta)))
+                    
+                        Search(beta); //either in the PV, qsearch, or null window search failed high, so do a full window search
+            
             globalBoard.UndoMove(move);
 
             if (eval > maxEval)
@@ -248,6 +257,7 @@ public class MyBot : IChessBot
                         square = BitboardHelper.ClearAndGetIndexOfLSB(ref mask) ^ 56 * sideToMove;
                         middlegame += UnpackedPestoTables[square][piece];
                         endgame += UnpackedPestoTables[square][piece + 6];
+                        //TODO: try and fit in stacked pawns
                     }
             // Tempo bonus to help with aspiration windows
             return (middlegame * gamephase + endgame * (24 - gamephase)) / 24 * (globalBoard.IsWhiteToMove ? 1 : -1) + gamephase / 2;
