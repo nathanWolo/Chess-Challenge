@@ -21,7 +21,8 @@ public class MyBot : IChessBot
     /*
     PeSTO style tuned piece tables shamelessly stolen from TyrantBot
     */
-    private static readonly short[] PieceValues =  { 82, 337, 365, 477, 1025, 0, // Middlegame
+    //pawn, knight, bishop, rook, queen, king
+    private static readonly short[] PieceValues =  { 82, 337, 355, 477, 1025, 0, // Middlegame
                                            94, 281, 297, 512, 936, 0 }; // Endgame
         // Big table packed with data from premade piece square tables
         // Access using using PackedEvaluationTables[square][pieceType] = score
@@ -96,12 +97,11 @@ public class MyBot : IChessBot
         if (notRoot && globalBoard.IsRepeatedPosition()) return 0;
 
         ulong boardKey = globalBoard.ZobristKey;
-        int maxEval = -36_000, eval, standPat = EvaluateBoard();
+
         
         var (entryKey, entryMove, entryDepth, entryScore, entryBound) = transpositionTable[boardKey % 5_000_000];
 
-        //weird ass local method bs to save on tokens
-        int Search(int newAlpha, int reduction = 1) => eval = -PVS(depthLeft - reduction, depthSoFar + 1, -newAlpha, -alpha);
+
 
         //transposition  table lookup
         if(notRoot && entryKey == boardKey //verify that the entry is for this position (can very rarely be wrong)
@@ -112,8 +112,9 @@ public class MyBot : IChessBot
             return entryScore;
         }
 
-
-
+        int maxEval = -36_000, eval, standPat = EvaluateBoard();
+        //weird ass local method bs to save on tokens
+        int Search(int newAlpha, int reduction = 1) => eval = -PVS(depthLeft - reduction, depthSoFar + 1, -newAlpha, -alpha);
         if(qsearch) {
             maxEval = standPat;
             if(maxEval >= beta) return beta;
@@ -131,29 +132,9 @@ public class MyBot : IChessBot
             //reverse futility pruning
             //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
             if (standPat - 90 * depthLeft >= beta && depthLeft < 8) //TODO: tune this constant.
-                //margin was originally 150
-                //testing 125:
-                /*
-                Score of dev rfp margin 90 vs Onion72: 994 - 847 - 1094  [0.525] 2935
-                ...      dev rfp margin 90 playing White: 627 - 306 - 535  [0.609] 1468
-                ...      dev rfp margin 90 playing Black: 367 - 541 - 559  [0.441] 1467
-                ...      White vs Black: 1168 - 673 - 1094  [0.584] 2935
-                Elo difference: 17.4 +/- 9.9, LOS: 100.0 %, DrawRatio: 37.3 %
-                SPRT: llr 2.89 (100.1%), lbound -2.25, ubound 2.89 - H1 was accepted
-                */
-                return beta; //fail hard, TODO: try fail soft
+                return beta ; //fail hard, TODO: try fail soft
             
             canFutilityPrune = depthLeft <= 8 && standPat + depthLeft * 160 <= alpha;
-            //margin was originally 225
-            //testing 160: 
-            /*
-            Score of dev fp margin 125 vs Onion73: 1021 - 927 - 1149  [0.515] 3097
-            ...      dev fp margin 125 playing White: 667 - 306 - 576  [0.617] 1549
-            ...      dev fp margin 125 playing Black: 354 - 621 - 573  [0.414] 1548
-            ...      White vs Black: 1288 - 660 - 1149  [0.601] 3097
-            Elo difference: 10.5 +/- 9.7, LOS: 98.3 %, DrawRatio: 37.1 %
-            SPRT: llr 1.64 (56.8%), lbound -2.25, ubound 2.89
-            */
         }
 
 
@@ -195,16 +176,9 @@ public class MyBot : IChessBot
                     continue;
             //futility pruning
             globalBoard.MakeMove(move);
-            // if (moveIndex == 0 || qsearch) 
-            //     Search(beta);
-            
-            // else {
-            //     Search(alpha +1, quiet ? 1 + (int)(Log(depthLeft) * Log(moveIndex) / 2) : 1); //lmr formula stolen from ethereal
-            //     if ((quiet || eval < beta) &&  eval > alpha) Search(beta); //re-search if failed high
-            // }
                 //PVS
                 //schizophrenia syntax incoming
-                //saves 5 tokens. should behave the same as the commented out code above
+                //saves 5 tokens. 
                 if (moveIndex == 0 || qsearch || //conditions to do full window search
 
                         // only do a reduced search if the move is quiet
@@ -234,10 +208,10 @@ public class MyBot : IChessBot
             }
         }
         //important to know if this is an exact score or just a lower/upper bound
-        int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
+        // int bound = maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1; // 3 = exact, 2 = lower bound, 1 = upper bound
 
         // Push to TT
-        transpositionTable[boardKey % 5_000_000] = (boardKey, bestMove, depthLeft, maxEval, bound);
+        transpositionTable[boardKey % 5_000_000] = (boardKey, bestMove, depthLeft, maxEval, maxEval >= beta ? 2 : maxEval > origAlpha ? 3 : 1);
         
         return maxEval;
     }
@@ -258,9 +232,18 @@ public class MyBot : IChessBot
                         middlegame += UnpackedPestoTables[square][piece];
                         endgame += UnpackedPestoTables[square][piece + 6];
                         //TODO: try and fit in stacked pawns
+
+                        //bishop pair
+                        if (piece == 2 && mask != 0)
+                            {
+                                middlegame += 22;
+                                endgame += 18;
+                            }
                     }
             // Tempo bonus to help with aspiration windows
-            return (middlegame * gamephase + endgame * (24 - gamephase)) / 24 * (globalBoard.IsWhiteToMove ? 1 : -1) + gamephase / 2;
+            return (middlegame * gamephase + endgame * (24 - gamephase)) / (globalBoard.IsWhiteToMove ? 24 : -24)
+            // Tempo bonus to help with aspiration windows
+                + gamephase / 2;
         }
 
 }
