@@ -104,7 +104,7 @@ public class MyBot : IChessBot
 
 
         //transposition  table lookup
-        if(notRoot && entryKey == boardKey //verify that the entry is for this position (can very rarely be wrong)
+        if(notPV && entryKey == boardKey //verify that the entry is for this position (can very rarely be wrong)
                 && entryDepth >= depthLeft //verify that the entry is for a search of at least this depth
                 && (entryBound == 3 // exact score
                     || (entryBound == 2 && entryScore >= beta )// lower bound, fail high
@@ -121,7 +121,12 @@ public class MyBot : IChessBot
             alpha = Max(alpha, maxEval);
         }
         else if (notPV && !inCheck) {
-            if (depthLeft > 2){ //null move pruning
+            //reverse futility pruning
+            //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
+            if (standPat - 90 * depthLeft >= beta && depthLeft < 8) //TODO: tune this constant.
+                return beta ; //fail hard, TODO: try fail soft
+                
+            if (depthLeft > 2){ //null move pruning  
                 globalBoard.ForceSkipTurn();
                 // eval = -PVS(depthLeft/2, depthSoFar + 1, -beta, -beta + 1);
                 Search(beta, 3 + depthLeft / 4);
@@ -129,10 +134,6 @@ public class MyBot : IChessBot
                 if (eval >= beta) return beta; //doing nothing was able to raise beta, so we can prune
 
             }
-            //reverse futility pruning
-            //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-            if (standPat - 90 * depthLeft >= beta && depthLeft < 8) //TODO: tune this constant.
-                return beta ; //fail hard, TODO: try fail soft
             
             canFutilityPrune = depthLeft <= 8 && standPat + depthLeft * 160 <= alpha;
         }
