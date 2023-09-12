@@ -56,7 +56,6 @@ public class MyBot : IChessBot
     {
         globalBoard = board;
         globalTimer = timer;
-        TIME_PER_MOVE = timer.MillisecondsRemaining / 30; //use more time on lichess because of increment
         Array.Clear(historyTable, 0, 896); //reset history table, TODO: replace historyTable.Length with a constant of 896
         try {
             for (int depthLeft = 1, alpha = -36_000, beta = 36_000, maxEval ;;) {
@@ -87,7 +86,7 @@ public class MyBot : IChessBot
 
     public int PVS(int depthLeft, int depthSoFar, int alpha, int beta)
     {
-        if (globalTimer.MillisecondsElapsedThisTurn > TIME_PER_MOVE) depthSoFar /= 0;
+        if (globalTimer.MillisecondsElapsedThisTurn > globalTimer.MillisecondsRemaining/30) depthSoFar /= 0;
         bool inCheck = globalBoard.IsInCheck(), notRoot = depthSoFar != 0, notPV = beta == alpha + 1, canFutilityPrune=false;
         if(inCheck) depthLeft++; //extend search depth if in check
 
@@ -123,9 +122,8 @@ public class MyBot : IChessBot
         else if (notPV && !inCheck) {
             //reverse futility pruning
             //Basic idea: if your score is so good you can take a big hit and still get the beta cutoff, go for it.
-            if (standPat - 90 * depthLeft >= beta && depthLeft < 8) //TODO: tune this constant.
-                return beta ; //fail hard, TODO: try fail soft
-                
+            if (standPat - 90 * depthLeft >= beta && depthLeft < 8) return beta ; //fail hard, TODO: try fail soft
+
             if (depthLeft > 2){ //null move pruning  
                 globalBoard.ForceSkipTurn();
                 // eval = -PVS(depthLeft/2, depthSoFar + 1, -beta, -beta + 1);
@@ -157,7 +155,7 @@ public class MyBot : IChessBot
             4. history heuristic
             */
             bestMove = legalMoves[moveIndex];
-            scores[moveIndex] = (bestMove == entryMove && entryKey == boardKey) ? -999_999_999 : //TT move
+            scores[moveIndex] = bestMove == entryMove && entryKey == boardKey ? -999_999_999 : //TT move
                 bestMove.IsCapture ? (int)bestMove.MovePieceType - 10_000_000 * (int)bestMove.CapturePieceType : //MVV/LVA
                 killerTable[depthSoFar] == bestMove ? -5_000_000 : //killers
                 historyTable[depthSoFar & 1, (int)bestMove.MovePieceType, bestMove.TargetSquare.Index]; //history heuristic
