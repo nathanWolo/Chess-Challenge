@@ -42,14 +42,14 @@ namespace ChessChallenge.Application
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyABNegamaxV2);
             }
             buttonPos = UIHelper.Scale(new Vector2(405, 210)); buttonSize = UIHelper.Scale(new Vector2(200, 55));
-            if (NextButtonInRow("vs QsearchV12", ref buttonPos, spacing, buttonSize)) {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.MyQsearchV12);
+            if (NextButtonInRow("vs Onion7", ref buttonPos, spacing, buttonSize)) {
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.Onion7);
             }
-            if (NextButtonInRow("vs Onion78", ref buttonPos, spacing, buttonSize)) {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.Onion78);
+            if (NextButtonInRow("vs Onion82", ref buttonPos, spacing, buttonSize)) {
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.Onion82);
             }
-            if (NextButtonInRow("vs TyrantBot", ref buttonPos, spacing, buttonSize)) {
-                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.TyrantBot);
+            if (NextButtonInRow("vs TyrantLatest", ref buttonPos, spacing, buttonSize)) {
+                controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.TyrantLatest);
             }
             if (NextButtonInRow("vs Benchmark2", ref buttonPos, spacing, buttonSize)) {
                 controller.StartNewBotMatch(ChallengeController.PlayerType.MyBot, ChallengeController.PlayerType.Benchmark2);
