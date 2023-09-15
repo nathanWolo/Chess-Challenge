@@ -2,7 +2,7 @@ using ChessChallenge.API;
 using System;
 using static System.Math;
 using System.Linq;
-public class Onion82 : IChessBot
+public class MyBot : IChessBot
 {
     
 
