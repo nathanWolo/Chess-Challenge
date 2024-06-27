@@ -57,6 +57,7 @@ public class Onion82 : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
+        Console.Write("Onion82\n");
         int[,,] historyTable = new int[2, 7, 64];
         int timeRemaining = timer.MillisecondsRemaining /30;
         try {

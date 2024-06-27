@@ -11,7 +11,7 @@ public class MyBot : IChessBot
     //TODO: use smaller types for depth, score and bound.
     // if we go int16, int8, int8 thats a whole byte smaller for each entry
     //will have to reorder so biggest types are first
-    private readonly (ulong, Move, int, int, int)[] transpositionTable = new (ulong, Move, int, int, int)[5_000_000]; //5M entries is approx 128MB, will fluctuate due to GC
+    private readonly (ulong, Move, int, int, int)[] transpositionTable = new (ulong, Move, int, int, int)[10_000_000]; //5M entries is approx 128MB, will fluctuate due to GC
 
     private readonly Move[] killerTable = new Move[256];
     // public int positionsEvaluated = 0;
@@ -57,7 +57,7 @@ public class MyBot : IChessBot
             for (int depthLeft = 1, alpha = -36_000, beta = 36_000, maxEval ;;) {
                 //iterative deepening
                 maxEval = PVS(depthLeft, 0, alpha, beta);
-                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
                 aspiration *= 2;
                 if (maxEval <= alpha) alpha -= aspiration;
                 else if (maxEval >= beta) beta += aspiration;
@@ -241,10 +241,10 @@ public class MyBot : IChessBot
                             // Mobility bonus 
                             
                             //mobility: SPRT passed: 12.4 +- 8.1, n = 4641
-                            // int bonus = BitboardHelper.GetNumberOfSetBits(
-                            //     BitboardHelper.GetPieceAttacks((PieceType)piece + 1, new Square(square ^ 56 * sideToMove), board, sideToMove > 0));
-                            // middlegame += bonus;
-                            // endgame += bonus * 2;
+                            int bonus = BitboardHelper.GetNumberOfSetBits(
+                                BitboardHelper.GetPieceAttacks((PieceType)piece + 1, new Square(square ^ 56 * sideToMove), board, sideToMove > 0));
+                            middlegame += bonus;
+                            endgame += bonus * 2;
                             
                             
                         

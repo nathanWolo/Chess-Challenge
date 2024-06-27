@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using ChessChallenge.API;
 using ChessChallenge.UCI;
+using static ChessChallenge.Application.ChallengeController;
 namespace ChessChallenge.Application
 {
     static class Program
@@ -31,72 +32,84 @@ if(args.Length == 1 && args[0].Contains("cutechess"))
             return;
         }
     }
-    if (args.Length > 1 && args[0] == "uci")
-    {
+    // if (args.Length > 1 && args[0] == "uci")
+    // {
         Console.WriteLine("Starting up in UCI mode...");
         StartUCI(args);
         return;
-    }
-    Console.WriteLine("Starting up in GUI mode...");
-            Vector2 loadedWindowSize = GetSavedWindowSize();
-            int screenWidth = (int)loadedWindowSize.X;
-            int screenHeight = (int)loadedWindowSize.Y;
+    // }
+    // Console.WriteLine("Starting up in GUI mode...");
+    // //print args
+    // foreach (string arg in args)
+    // {
+    //     Console.WriteLine(arg);
+    // }
+    //         Vector2 loadedWindowSize = GetSavedWindowSize();
+    //         int screenWidth = (int)loadedWindowSize.X;
+    //         int screenHeight = (int)loadedWindowSize.Y;
 
-            if (hideRaylibLogs)
-            {
-                unsafe
-                {
-                    Raylib.SetTraceLogCallback(&LogCustom);
-                }
-            }
+    //         if (hideRaylibLogs)
+    //         {
+    //             unsafe
+    //             {
+    //                 Raylib.SetTraceLogCallback(&LogCustom);
+    //             }
+    //         }
 
-            Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
-            Raylib.SetTargetFPS(60);
+    //         Raylib.InitWindow(screenWidth, screenHeight, "Chess Coding Challenge");
+    //         Raylib.SetTargetFPS(60);
 
-            UpdateCamera(screenWidth, screenHeight);
+    //         UpdateCamera(screenWidth, screenHeight);
 
-            ChallengeController controller = new();
+    //         ChallengeController controller = new();
 
-            while (!Raylib.WindowShouldClose())
-            {
-                Raylib.BeginDrawing();
-                Raylib.ClearBackground(new Color(22, 22, 22, 255));
-                Raylib.BeginMode2D(cam);
+    //         while (!Raylib.WindowShouldClose())
+    //         {
+    //             Raylib.BeginDrawing();
+    //             Raylib.ClearBackground(new Color(22, 22, 22, 255));
+    //             Raylib.BeginMode2D(cam);
 
-                controller.Update();
-                controller.Draw();
+    //             controller.Update();
+    //             controller.Draw();
 
-                Raylib.EndMode2D();
+    //             Raylib.EndMode2D();
 
-                controller.DrawOverlay();
+    //             controller.DrawOverlay();
 
-                Raylib.EndDrawing();
-            }
+    //             Raylib.EndDrawing();
+    //         }
 
-            Raylib.CloseWindow();
+    //         Raylib.CloseWindow();
 
-            controller.Release();
-            UIHelper.Release();
+    //         controller.Release();
+    //         UIHelper.Release();
         }
 public static void StartUCI(string[] args)
-{
-    ChallengeController.PlayerType player;
-    bool success = Enum.TryParse(args[1], out player);
-
-    if (!success)
+{    
+    foreach (string arg in args)
     {
-        Console.Error.WriteLine($"Failed to start bot with player type {args[1]}");
-        return;
+        Console.WriteLine(arg);
     }
+    // ChallengeController.PlayerType player;
+    // bool success = Enum.TryParse(args[0], out player);
+    //init MyBot
 
-    IChessBot? bot = ChallengeController.CreateBot(player);
-    if (bot == null)
-    {
-        Console.Error.WriteLine($"Cannot create bot of type {player.ToString()}");
-        return;
-    }
 
-    UCIBot uci = new UCIBot(bot, player);
+    // if (!success)
+    // {
+    //     Console.Error.WriteLine($"Failed to start bot with player type {args[1]}");
+    //     return;
+    // }
+
+    // IChessBot? bot = ChallengeController.CreateBot(player);
+    IChessBot bot = ChallengeController.CreateBot(ChallengeController.PlayerType.Onion82);
+    // if (bot == null)
+    // {
+    //     Console.Error.WriteLine($"Cannot create bot of type {player.ToString()}");
+    //     return;
+    // }
+
+    UCIBot uci = new UCIBot(bot, ChallengeController.PlayerType.Onion82);
     uci.Run();
 }
         public static void SetWindowSize(Vector2 size)
