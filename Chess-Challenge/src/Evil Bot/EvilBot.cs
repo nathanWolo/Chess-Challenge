@@ -57,14 +57,18 @@ public class Onion82 : IChessBot
 
     public Move Think(Board board, Timer timer)
     {
-        Console.Write("Onion82\n");
+        // Console.Write("Onion82\n");
         int[,,] historyTable = new int[2, 7, 64];
         int timeRemaining = timer.MillisecondsRemaining /30;
+        int maxEval = 0;
+        int depthLeft = 1;
+        int alpha = -36_000;
+        int beta = 36_000;
         try {
-            for (int depthLeft = 1, alpha = -36_000, beta = 36_000, maxEval ;;) {
+            while (true) {
                 //iterative deepening
                 maxEval = PVS(depthLeft, 0, alpha, beta);
-                // Console.Write("best move: {0}, value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
+                // Console.Write("info value: {1}, depth: {2}\n", bestMoveRoot, maxEval, depthLeft);
                 aspiration *= 2;
                 if (maxEval <= alpha) alpha -= aspiration;
                 else if (maxEval >= beta) beta += aspiration;
@@ -76,8 +80,11 @@ public class Onion82 : IChessBot
                     depthLeft++;
                 }
             }
+
         }
         catch {
+            Console.Write("info score cp {0} depth {1}\n", maxEval, depthLeft);
+            // Console.Write("info value: {1}, depth: {2}\n", maxEval, depthLeft);
             return bestMoveRoot;
         }
 
